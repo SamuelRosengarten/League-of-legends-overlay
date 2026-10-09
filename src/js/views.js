@@ -262,7 +262,17 @@ function searchView(g, query, onPick) {
 }
 
 function noGuideView(champ) {
+  const known = DD.portraits.get(champ);
+  const name = DD.champion(champ) ? DD.champion(champ).name : champ;
+  if (DD.status === "loading" || (known && DD.pending.has(known.id))) {
+    return el("div", { class: "empty" }, el("p", { class: "empty-title", text: `Loading ${name}…` }));
+  }
+  if (DD.status === "offline" || (known && DD.failed.has(known.id))) {
+    return el("div", { class: "empty" },
+      el("p", { class: "empty-title", text: `Can't load ${name}` }),
+      el("p", { class: "muted", text: "Guides for most champions come from Riot's Data Dragon. Connect to the internet once and they are cached for offline use." }));
+  }
   return el("div", { class: "empty" },
-    el("p", { class: "empty-title", text: `No guide for ${champ} yet` }),
-    el("p", { class: "muted", text: `Guides available: ${Object.keys(window.GUIDES || {}).join(", ") || "none"}.` }));
+    el("p", { class: "empty-title", text: `No guide for ${name} yet` }),
+    el("p", { class: "muted", text: "Riot's data has no champion with this name." }));
 }

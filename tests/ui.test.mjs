@@ -244,9 +244,8 @@ test("live game state shows in the header; other champions get an empty state", 
   await emit(page, "game-state", IN_GAME);
   assert.match(await page.textContent(".live"), /Practice Tool.*5:01.*Lv 7.*1,234 g/);
   await shot(page, "compact-in-game");
-  await emit(page, "game-state", { ...IN_GAME, champion: "Ahri" });
-  assert.match(await page.textContent(".empty"), /No guide for Ahri yet/);
-  assert.match(await page.textContent(".empty"), /Guides available: Gwen/);
+  await emit(page, "game-state", { ...IN_GAME, champion: "Nobody" });
+  assert.match(await page.textContent(".empty"), /No guide for Nobody yet/);
   await emit(page, "game-state", { inGame: false });
   assert.equal(await page.locator(".live").count(), 0);
   await page.close();
@@ -389,4 +388,20 @@ test("scales to the screen: no overflow, fits on screen, readable text", async (
       await ctx.close();
     }
   }
+});
+
+test("champions without a hand-written guide get one built from Data Dragon", async () => {
+  const page = await open();
+  await emit(page, "game-state", { ...IN_GAME, champion: "Kai'Sa", items: [] });
+  await page.waitForSelector(".kv");
+  assert.equal(await page.textContent(".name"), "Kai'Sa");
+  assert.match(await page.textContent(".sub"), /Marksman · Auto guide/);
+  const build = await page.locator(".kv", { hasText: "Build" }).locator(".ic").evaluateAll((n) => n.map((e) => e.getAttribute("aria-label")));
+  assert.deepEqual(build.slice(0, 2), ["Doran's Blade", "Health Potion"]);
+  // Lowest cooldown first: Q (9s), then E (16s), then W (22s).
+  assert.match(await page.getAttribute(".skill-chips", "aria-label"), /Max Q then E then W/);
+  assert.equal(await page.locator(".tips .tip").count(), 3);
+  await noJunkText(page);
+  assert.deepEqual(page.errors, []);
+  await page.close();
 });

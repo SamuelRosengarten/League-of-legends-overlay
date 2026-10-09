@@ -7,6 +7,10 @@ const SHARD_ICONS = {
   "Attack Speed": "StatModsAttackSpeedIcon.png",
   "Adaptive Force": "StatModsAdaptiveForceIcon.png",
   "Health (scaling)": "StatModsHealthScalingIcon.png",
+  "Health": "StatModsHealthPlusIcon.png",
+  "Move Speed": "StatModsMovementSpeedIcon.png",
+  "Ability Haste": "StatModsCDRScalingIcon.png",
+  "Tenacity and Slow Resist": "StatModsTenacityIcon.png",
 };
 
 const DD = {
@@ -15,6 +19,8 @@ const DD = {
   items: new Map(), runes: new Map(), trees: new Map(), summoners: new Map(), champions: new Map(),
   // Every champion's portrait, by display name ("Kai'Sa") and by id ("Kaisa").
   portraits: new Map(),
+  // Champion detail files that are loading, or failed to load (by id).
+  pending: new Set(), failed: new Set(),
 
   champion(name) {
     const detail = this.champions.get(name);
@@ -75,12 +81,15 @@ function indexChampion(json, v) {
   for (const c of Object.values(json.data || {})) {
     const spells = {};
     (c.spells || []).forEach((s, i) => {
-      spells["QWER"[i]] = { name: s.name, img: `${DD_BASE}cdn/${v}/img/spell/${s.image.full}`, desc: ddText(s.description) };
+      spells["QWER"[i]] = { name: s.name, img: `${DD_BASE}cdn/${v}/img/spell/${s.image.full}`, desc: ddText(s.description), cd: s.cooldownBurn };
     });
     if (c.passive) {
       spells.Passive = { name: c.passive.name, img: `${DD_BASE}cdn/${v}/img/passive/${c.passive.image.full}`, desc: ddText(c.passive.description) };
     }
-    DD.champions.set(c.id, { name: c.name, title: c.title, img: `${DD_BASE}cdn/${v}/img/champion/${c.image.full}`, spells });
+    // Keyed by id ("Kaisa") and by the display name the game reports ("Kai'Sa").
+    const detail = { name: c.name, title: c.title, tags: c.tags || [], info: c.info || {}, img: `${DD_BASE}cdn/${v}/img/champion/${c.image.full}`, spells };
+    DD.champions.set(c.id, detail);
+    DD.champions.set(c.name, detail);
   }
 }
 
@@ -106,7 +115,7 @@ async function loadDataDragon(champions, onChange) {
     }),
     ddJson(base + "champion.json").then((j) => {
       for (const c of Object.values(j.data || {})) {
-        const p = { name: c.name, img: `${DD_BASE}cdn/${v}/img/champion/${c.image.full}` };
+        const p = { id: c.id, name: c.name, img: `${DD_BASE}cdn/${v}/img/champion/${c.image.full}` };
         DD.portraits.set(c.name, p);
         DD.portraits.set(c.id, p);
       }
@@ -115,5 +124,20 @@ async function loadDataDragon(champions, onChange) {
   ];
   const results = await Promise.allSettled(jobs);
   DD.status = results.some((r) => r.status === "fulfilled") ? "ready" : "offline";
+  onChange();
+}
+
+// Load one champion's abilities (needed for an automatic guide). Safe to call repeatedly.
+async function loadChampion(name, onChange) {
+  const p = DD.portraits.get(name);
+  if (!p || !DD.version || DD.champions.has(p.id) || DD.pending.has(p.id)) return;
+  DD.pending.add(p.id);
+  DD.failed.delete(p.id);
+  try {
+    indexChampion(await ddJson(`cdn/${DD.version}/data/en_US/champion/${p.id}.json`), DD.version);
+  } catch {
+    DD.failed.add(p.id);
+  }
+  DD.pending.delete(p.id);
   onChange();
 }

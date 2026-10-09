@@ -1,7 +1,7 @@
 // Overlay controller: state, rendering, live game events and window fitting.
 const $ = (id) => document.getElementById(id);
 
-// The guide shown before a game (and when you play Gwen). Change this for other champions later.
+// The guide shown before a game starts. In a game it follows the champion you play.
 const DEFAULT_CHAMPION = "Gwen";
 const WINDOW_MARGIN = 6; // must match body padding in style.css
 
@@ -16,7 +16,8 @@ const S = {
 };
 
 const champ = () => (S.game.inGame ? S.game.champion : DEFAULT_CHAMPION);
-const guide = () => (window.GUIDES || {})[champ()];
+// Hand-written guides win; every other champion gets one generated from Data Dragon.
+const guide = () => (window.GUIDES || {})[champ()] || autoGuide(champ());
 const viewKey = () => (S.settings ? "settings" : Prefs.value.mode === "compact" ? "compact" : `tab:${Prefs.value.tab}`);
 // Build progress only makes sense when the guide is for the champion you are playing.
 const progress = () => (Prefs.value.liveProgress && S.game.inGame && guide() ? buildProgress(guide(), S.game.items) : NO_PROGRESS);
@@ -76,7 +77,7 @@ function renderHeader() {
   } else {
     controls = [el("span", { class: "lock-state", role: "img", "aria-label": "Locked: clicks go to the game" }, svgIcon("lock"))];
   }
-  const sub = g ? `${g.role} · Patch ${g.patch}` : S.game.inGame ? "No guide yet" : "";
+  const sub = g ? `${g.role} · ${g.auto ? "Auto guide" : `Patch ${g.patch}`}` : S.game.inGame ? "No guide yet" : "";
   const drag = { "data-tauri-drag-region": true };
   const header = el("header", { class: "hdr", ...drag },
     iconTile(dd ? dd.name : c, dd, { size: "lg", kind: "portrait", focusable: false, extraAttrs: drag }),
@@ -138,7 +139,7 @@ function renderBody() {
       onClose: () => { S.settings = false; renderAll(); },
     });
   } else if (!g) {
-    view = noGuideView(DD.champion(c) ? DD.champion(c).name : c);
+    view = noGuideView(c);
   } else if (Prefs.value.mode === "compact") {
     view = compactView(g, c, progress());
   } else if (S.query.trim()) {
@@ -238,9 +239,14 @@ function onGameState(g) {
   S.game = g;
   S.gameTime = g.inGame ? g.gameTime : null;
   const itemsKey = (x) => (x.items || []).map((i) => `${i.name}x${i.count}`).join(",");
-  if (g.inGame !== prev.inGame || g.champion !== prev.champion) renderAll();
+  if (g.inGame !== prev.inGame || g.champion !== prev.champion) { ensureChampion(); renderAll(); }
   else if (itemsKey(g) !== itemsKey(prev)) { renderHeader(); renderBody(); fitSoon(); }
   else { renderHeader(); renderNow(); fitSoon(); }
+}
+
+// Fetch the played champion's abilities if its guide is generated.
+function ensureChampion() {
+  if (S.game.inGame && !(window.GUIDES || {})[champ()]) loadChampion(champ(), renderAll);
 }
 
 // The backend only sends updates on change, so the clock ticks locally between them.
@@ -282,4 +288,4 @@ if (Bridge.isApp) {
     .then((st) => { S.interactive = st.interactive; S.hotkeys = st.hotkeys; renderAll(); })
     .catch(() => { /* keep defaults: locked, hotkeys unknown */ });
 }
-loadDataDragon(Object.keys(window.GUIDES || {}), renderAll);
+loadDataDragon(Object.keys(window.GUIDES || {}), () => { ensureChampion(); renderAll(); });

@@ -1,7 +1,7 @@
 # LoL Overlay
 
 A very light (Tauri) in-game overlay for League of Legends, aimed at brand-new players.
-It ships a bundled beginner guide for Gwen: runes, item build, skill order, abilities and tips.
+It ships a hand-written beginner guide for Gwen (shown before a game starts). In a game it follows your champion: every other champion gets an automatic guide built from Riot's Data Dragon (real abilities, plus a generic rune/item/spell template for their class and a skill order picked from cooldowns). Those are starting points, not meta builds. Add an entry to `src/data/guides.js` to override one.
 
 ## Using it
 - Run League in **Borderless** or **Windowed** mode so the overlay can draw on top.
