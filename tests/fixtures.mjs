@@ -71,6 +71,8 @@ export function ddJsonFor(path) {
     [`${base}champion.json`]: { data: {
       Gwen: { id: "Gwen", name: "Gwen", image: { full: "Gwen.png" } },
       Kaisa: { id: "Kaisa", name: "Kai'Sa", image: { full: "Kaisa.png" } },
+      // Listed, but its detail file is missing: exercises the "can't load" state.
+      Ahri: { id: "Ahri", name: "Ahri", image: { full: "Ahri.png" } },
     } },
   }[path];
 }

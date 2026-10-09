@@ -17,7 +17,8 @@ const S = {
 
 const champ = () => (S.game.inGame ? S.game.champion : DEFAULT_CHAMPION);
 // Hand-written guides win; every other champion gets one generated from Data Dragon.
-const guide = () => (window.GUIDES || {})[champ()] || autoGuide(champ());
+// In other game modes the Summoner's Rift tips are swapped for ones that fit the mode.
+const guide = () => withMode((window.GUIDES || {})[champ()] || autoGuide(champ()), S.game.inGame ? modeKind(S.game.gameMode) : "rift");
 const viewKey = () => (S.settings ? "settings" : Prefs.value.mode === "compact" ? "compact" : `tab:${Prefs.value.tab}`);
 // Build progress only makes sense when the guide is for the champion you are playing.
 const progress = () => (Prefs.value.liveProgress && S.game.inGame && guide() ? buildProgress(guide(), S.game.items) : NO_PROGRESS);
@@ -67,7 +68,7 @@ function renderHeader() {
   if (S.interactive) {
     controls = [
       controlButton(expanded ? "collapse" : "expand", `${expanded ? "Compact" : "Expanded"} view${hk.mode ? ` (${hk.mode})` : ""}`, () => setMode(expanded ? "compact" : "expanded")),
-      controlButton("gear", "Settings", () => { S.settings = !S.settings; renderAll(); }, { "aria-pressed": String(S.settings) }),
+      controlButton("gear", "Settings", () => { S.settings = !S.settings; HK.capturing = null; renderAll(); }, { "aria-pressed": String(S.settings) }),
     ];
     if (Bridge.isApp) {
       controls.push(
@@ -135,8 +136,11 @@ function renderBody() {
       onMode: (m) => setMode(m),
       onPrefs: () => { applyPrefs(); fitSoon(); },
       onLiveProgress: (on) => { Prefs.set({ liveProgress: on }); },
+      onOnlyInGame: (on) => { Prefs.set({ onlyInGame: on }); syncVisibility(true); },
+      onRerender: () => renderBody(),
+      onHotkey: setHotkeys,
       onReset: resetAll,
-      onClose: () => { S.settings = false; renderAll(); },
+      onClose: () => { S.settings = false; HK.capturing = null; renderAll(); },
     });
   } else if (!g) {
     view = noGuideView(c);
@@ -198,6 +202,18 @@ function setTab(tab) {
   renderAll();
 }
 
+// Rebind hotkeys: the backend validates, registers and saves them, or explains why not.
+async function setHotkeys(keys) {
+  try {
+    S.hotkeys = await Bridge.invoke("set_hotkeys", keys);
+    HK.error = "";
+  } catch (e) {
+    HK.error = String(e);
+  }
+  HK.capturing = null;
+  renderAll();
+}
+
 function setInteractive(on) {
   if (Bridge.isApp) Bridge.send("set_interactive", { interactive: on });
 }
@@ -239,9 +255,18 @@ function onGameState(g) {
   S.game = g;
   S.gameTime = g.inGame ? g.gameTime : null;
   const itemsKey = (x) => (x.items || []).map((i) => `${i.name}x${i.count}`).join(",");
-  if (g.inGame !== prev.inGame || g.champion !== prev.champion) { ensureChampion(); renderAll(); }
+  if (g.inGame !== prev.inGame) syncVisibility();
+  if (g.inGame !== prev.inGame || g.champion !== prev.champion || g.gameMode !== prev.gameMode) { ensureChampion(); renderAll(); }
   else if (itemsKey(g) !== itemsKey(prev)) { renderHeader(); renderBody(); fitSoon(); }
   else { renderHeader(); renderNow(); fitSoon(); }
+}
+
+// "Only show during a game": hide with no game, show when one starts. `force` also shows the
+// overlay when the option was just turned off, so it never stays hidden by mistake.
+function syncVisibility(force = false) {
+  if (!Bridge.isApp) return;
+  if (Prefs.value.onlyInGame) Bridge.send("set_visible", { visible: S.game.inGame });
+  else if (force) Bridge.send("set_visible", { visible: true });
 }
 
 // Fetch the played champion's abilities if its guide is generated.
@@ -285,7 +310,14 @@ if (Bridge.isApp) {
   });
   Bridge.listen("toggle-mode", () => setMode(Prefs.value.mode === "compact" ? "expanded" : "compact"));
   Bridge.invoke("get_status")
-    .then((st) => { S.interactive = st.interactive; S.hotkeys = st.hotkeys; renderAll(); })
+    .then((st) => {
+      S.interactive = st.interactive;
+      S.hotkeys = st.hotkeys;
+      // The game may already be running (the first event can fire before this page listens).
+      if (st.game && st.game.inGame) onGameState(st.game);
+      else renderAll();
+      syncVisibility();
+    })
     .catch(() => { /* keep defaults: locked, hotkeys unknown */ });
 }
 loadDataDragon(Object.keys(window.GUIDES || {}), () => { ensureChampion(); renderAll(); });

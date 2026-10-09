@@ -21,13 +21,48 @@ function segmented(label, options, current, onPick) {
       el("button", { type: "button", class: "seg", "aria-pressed": String(value === current), onclick: () => onPick(value) }, text))));
 }
 
+// Hotkey rebinding: which row is waiting for a key press, and the last error.
+const HK = { capturing: null, error: "" };
+const HOTKEY_ROWS = [["toggle", "Show / hide"], ["mode", "Compact / expanded"], ["interact", "Interact / lock"]];
+
+// Turn a key press into a Tauri shortcut string, e.g. "Ctrl+Shift+K".
+// Returns { combo }, { error }, or {} while only modifier keys are held.
+function comboFromEvent(e) {
+  if (/^(Control|Shift|Alt|Meta|OS)(Left|Right)$/.test(e.code)) return {};
+  let key = null;
+  if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3);
+  else if (/^Digit\d$/.test(e.code)) key = e.code.slice(5);
+  else if (/^F([1-9]|1\d|2[0-4])$/.test(e.code)) key = e.code;
+  else if (/^Arrow(Up|Down|Left|Right)$/.test(e.code)) key = e.code.slice(5);
+  else if (e.code === "Space") key = "Space";
+  if (!key) return { error: "Use a letter, number, F-key, arrow or space." };
+  const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Super"].filter(Boolean);
+  if (!mods.length && !/^F\d+$/.test(key)) return { error: "Hold Ctrl, Alt or Shift too, so it does not clash with typing in the game." };
+  return { combo: [...mods, key].join("+") };
+}
+
 // `ctx`: { hotkeys, onMode(mode), onPrefs(), onReset(), onClose() }
 function settingsView(ctx) {
   const p = Prefs.value;
   const widthKey = p.mode === "compact" ? "compactWidth" : "expandedWidth";
   const hk = ctx.hotkeys;
-  const hotkeyRow = (label, value) => el("div", { class: "kv" }, el("span", { class: "kv-label", text: label }),
-    value ? el("kbd", { text: value }) : el("span", { class: "muted", text: "unavailable (invalid or used by another app)" }));
+  const hotkeyRow = ([name, label]) => {
+    const value = hk[name], waiting = HK.capturing === name;
+    const change = el("button", { type: "button", class: "btn btn-small", "aria-label": `Change ${label} hotkey`, text: waiting ? "Press keys… (Esc to cancel)" : "Change" });
+    change.addEventListener("click", () => { HK.capturing = waiting ? null : name; HK.error = ""; ctx.onRerender(); });
+    change.addEventListener("keydown", (e) => {
+      if (!waiting) return;
+      e.preventDefault();
+      e.stopPropagation(); // Esc cancels the capture, it must not also lock the overlay
+      if (e.key === "Escape") { HK.capturing = null; ctx.onRerender(); return; }
+      const r = comboFromEvent(e);
+      if (r.error) { HK.error = r.error; ctx.onRerender(); return; }
+      if (r.combo) ctx.onHotkey({ ...hk, [name]: r.combo });
+    });
+    if (waiting) queueMicrotask(() => change.focus());
+    return el("div", { class: "kv" }, el("span", { class: "kv-label", text: label }),
+      el("span", { class: "hk" }, value ? el("kbd", { text: value }) : el("span", { class: "muted", text: "unavailable" }), change));
+  };
   const icons = DD.status === "ready" ? `Loaded (Data Dragon ${DD.version})`
     : DD.status === "loading" ? "Loading..." : "Offline: showing text instead of icons";
 
@@ -44,16 +79,19 @@ function settingsView(ctx) {
       p.mode === "expanded" ? slider("Max height", "expandedMaxHeight", "px", ctx.onPrefs) : null),
     card("In game",
       el("label", { class: "setting setting-check" },
+        el("input", { type: "checkbox", checked: Prefs.value.onlyInGame, "aria-label": "Only show during a game",
+          onchange: (e) => ctx.onOnlyInGame(e.target.checked) }),
+        el("span", { class: "setting-label", text: "Only show during a game (the show / hide hotkey still works)" })),
+      el("label", { class: "setting setting-check" },
         el("input", { type: "checkbox", checked: Prefs.value.liveProgress, "aria-label": "Live build progress",
           onchange: (e) => ctx.onLiveProgress(e.target.checked) }),
         el("span", { class: "setting-label", text: "Live build progress: tick owned items and show the next one to buy" })),
       el("p", { class: "note", text: "Off by default. Riot's third-party rules prohibit apps that draw conclusions for you during a game, and it is not clear whether this hint counts. Turn it on at your own discretion." })),
     card("Hotkeys",
       Bridge.isApp && hk ? [
-        hotkeyRow("Show / hide", hk.toggle),
-        hotkeyRow("Compact / expanded", hk.mode),
-        hotkeyRow("Interact / lock", hk.interact),
-        el("p", { class: "note", text: `To change them, edit ${CONFIG_PATH} and restart the app.` }),
+        ...HOTKEY_ROWS.map(hotkeyRow),
+        HK.error ? el("p", { class: "note error", role: "alert", text: HK.error }) : null,
+        el("p", { class: "note", text: `Saved to ${CONFIG_PATH}. Hold Ctrl, Alt or Shift with a letter, number, F-key or arrow.` }),
       ] : el("p", { class: "note", text: "Hotkeys work in the desktop app." })),
     card("Icons & data", el("p", { class: "note", text: icons })),
     el("div", { class: "actions" },

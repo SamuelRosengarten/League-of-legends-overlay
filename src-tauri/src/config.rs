@@ -52,9 +52,19 @@ pub fn hotkeys_from_json(json: &str) -> Hotkeys {
 }
 
 pub fn default_file() -> String {
-    format!(
-        "{{\n  \"hotkey\": \"{DEFAULT_TOGGLE}\",\n  \"modeHotkey\": \"{DEFAULT_MODE}\",\n  \"interactHotkey\": \"{DEFAULT_INTERACT}\"\n}}\n"
-    )
+    to_json(&Hotkeys::default())
+}
+
+/// The config file text for these hotkeys.
+pub fn to_json(h: &Hotkeys) -> String {
+    let value = serde_json::json!({
+        "hotkey": h.toggle,
+        "modeHotkey": h.mode,
+        "interactHotkey": h.interact,
+    });
+    let mut text = serde_json::to_string_pretty(&value).unwrap_or_default();
+    text.push('\n');
+    text
 }
 
 #[cfg(test)]
@@ -85,6 +95,16 @@ mod tests {
         assert_eq!(hotkeys_from_json("{}"), Hotkeys::default());
         assert_eq!(hotkeys_from_json(r#"{"hotkey":" "}"#), Hotkeys::default());
         assert_eq!(hotkeys_from_json("nope"), Hotkeys::default());
+    }
+
+    #[test]
+    fn saved_hotkeys_round_trip() {
+        let h = Hotkeys {
+            toggle: "Alt+Q".into(),
+            mode: "Ctrl+Alt+W".into(),
+            interact: "Shift+F5".into(),
+        };
+        assert_eq!(hotkeys_from_json(&to_json(&h)), h);
     }
 
     #[test]

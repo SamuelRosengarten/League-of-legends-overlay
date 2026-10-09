@@ -18,11 +18,20 @@ It ships a hand-written beginner guide for Gwen (shown before a game starts). In
 | `Ctrl+Shift+M` | Compact / expanded |
 | `Ctrl+Shift+L` | Interact (click the overlay, drag it by the header) / lock again. `Esc` also locks. |
 
-Change hotkeys in `%APPDATA%\com.samuelrosengarten.lol-overlay\config.json` and restart:
+Hotkeys are best changed in Settings; they are stored in `%APPDATA%\com.samuelrosengarten.lol-overlay\config.json`, which you can also edit by hand (restart afterwards):
 `{"hotkey": "Ctrl+Shift+O", "modeHotkey": "Ctrl+Shift+M", "interactHotkey": "Ctrl+Shift+L"}`
 
 The **settings** panel (gear icon, when unlocked) adjusts mode, opacity, size (it also scales automatically to your screen, e.g. 1.2x at 1440p, 1.6x at 4K with 100% Windows scaling), width and max height, and can reset everything.
 Settings and the window position are remembered; the overlay is always kept fully on a connected screen. The tray icon has **Show / hide**, **Interact / lock** and **Quit**.
+
+**Only show during a game** (Settings, In game) hides the overlay when no game is running and shows it when one starts; the show / hide hotkey still works. Starting the app a second time just shows the running one.
+
+In **ARAM, URF and Arena** the Summoner's Rift tips (CS, recall, Control Wards) are replaced by tips for that mode. **Hotkeys** can be changed in Settings (hold Ctrl, Alt or Shift with a letter, number, F-key or arrow); they are saved to `config.json`.
+
+## Development
+- `npm run test:ui` runs the UI tests in Chromium (mocked game and Data Dragon). If you have no Chrome, run `npx playwright-core install chromium` once, or set `CHROME_PATH`.
+- `npm run check:names` (needs internet) checks that every item, rune, shard and spell named in the guides exists in the current Data Dragon and that rune pages are valid. A weekly GitHub Action runs it (and you can run it by hand from the Actions tab), so a patch that renames something fails loudly instead of silently dropping an icon.
+- `cargo test` / `cargo clippy` in `src-tauri` for the Rust side.
 
 ## Riot policy
 Only Riot's official local Live Client Data API (your own champion, level, gold and items) and Riot's public Data Dragon are used. No injection, memory reading or automation. This app is not endorsed or approved by Riot.

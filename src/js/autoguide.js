@@ -57,14 +57,14 @@ const AUTO_PROFILES = {
     runes: { primaryTree: "Sorcery", keystone: "Arcane Comet", primary: ["Manaflow Band", "Transcendence", "Scorch"],
       secondaryTree: "Inspiration", secondary: ["Magical Footwear", "Cosmic Insight"], shards: AUTO_SHARDS.ad },
     summoners: ["Flash", "Ignite"],
-    items: { start: ["Doran's Ring", "Health Potion"], core: ["Luden's Companion", "Sorcerer's Shoes", "Shadowflame"], boots: "Sorcerer's Shoes",
+    items: { start: ["Doran's Ring", "Health Potion"], core: ["Luden's Echo", "Sorcerer's Shoes", "Shadowflame"], boots: "Sorcerer's Shoes",
       later: ["Rabadon's Deathcap", "Zhonya's Hourglass", "Void Staff"] },
     tip: "Fight from as far away as your abilities allow. Mana is limited, so do not spam early.",
   },
   adAssassin: {
     role: "Assassin",
     summary: "Burst damage. Pick off one target at a time and leave before you are caught.",
-    runes: { primaryTree: "Domination", keystone: "Electrocute", primary: ["Sudden Impact", "Eyeball Collection", "Ultimate Hunter"],
+    runes: { primaryTree: "Domination", keystone: "Electrocute", primary: ["Sudden Impact", "Sixth Sense", "Ultimate Hunter"],
       secondaryTree: "Sorcery", secondary: ["Nimbus Cloak", "Waterwalking"], shards: AUTO_SHARDS.ad },
     summoners: ["Flash", "Ignite"],
     items: { start: ["Doran's Blade", "Health Potion"], core: ["Youmuu's Ghostblade", "Ionian Boots of Lucidity", "Edge of Night"], boots: "Ionian Boots of Lucidity",
@@ -74,10 +74,10 @@ const AUTO_PROFILES = {
   apAssassin: {
     role: "Assassin",
     summary: "Burst damage with abilities. Pick off one target at a time and leave before you are caught.",
-    runes: { primaryTree: "Domination", keystone: "Electrocute", primary: ["Sudden Impact", "Eyeball Collection", "Ultimate Hunter"],
+    runes: { primaryTree: "Domination", keystone: "Electrocute", primary: ["Sudden Impact", "Sixth Sense", "Ultimate Hunter"],
       secondaryTree: "Sorcery", secondary: ["Absolute Focus", "Gathering Storm"], shards: AUTO_SHARDS.ad },
     summoners: ["Flash", "Ignite"],
-    items: { start: ["Doran's Ring", "Health Potion"], core: ["Luden's Companion", "Sorcerer's Shoes", "Shadowflame"], boots: "Sorcerer's Shoes",
+    items: { start: ["Doran's Ring", "Health Potion"], core: ["Luden's Echo", "Sorcerer's Shoes", "Shadowflame"], boots: "Sorcerer's Shoes",
       later: ["Rabadon's Deathcap", "Zhonya's Hourglass", "Void Staff"] },
     tip: "Look for enemies who are alone or out of position. One kill then leave is better than staying in a lost fight.",
   },
@@ -171,4 +171,61 @@ function autoGuide(name) {
   };
   autoCache.set(d, g);
   return g;
+}
+
+// ---- Game modes -------------------------------------------------------------
+// Tips and spells written for Summoner's Rift (laning, recall, Control Wards) are wrong in
+// other modes, so those modes replace the tips. Items and runes stay the guide's own.
+const MODE_OVERRIDES = {
+  aram: {
+    summoners: ["Flash", "Mark"],
+    tips: [
+      { category: "Teamfights", priority: true, text: "Stay with your team: ARAM is one long fight.",
+        detail: "There is a single lane. Fighting alone at the front gets you killed." },
+      { category: "Shopping", priority: true, text: "Spend your gold every time you die.",
+        detail: "You can only shop at the fountain. Buy when you respawn instead of saving gold." },
+      { category: "Healing", priority: true, text: "Grab health relics on the lane to heal for free.",
+        detail: "They sit on the lane between fights. Use them before you walk back into a fight." },
+    ],
+  },
+  urf: {
+    tips: [
+      { category: "Abilities", priority: true, text: "Cooldowns are tiny: use your abilities constantly.",
+        detail: "Holding an ability back wastes it. Use everything as soon as it is ready." },
+      { category: "Survival", priority: true, text: "You die fast: do not walk up alone.",
+        detail: "Everything hits hard in this mode. Stay near your team and keep your health up." },
+      { category: "Gold", priority: true, text: "Recall often and spend your gold.",
+        detail: "Gold comes in quickly, so go back and buy whenever you can afford a part." },
+    ],
+  },
+  arena: {
+    tips: [
+      { category: "Augments", priority: true, text: "Pick augments that match your champion's strengths.",
+        detail: "Augments change your play more than any item. Prefer ones that boost what you already do well." },
+      { category: "Teamwork", priority: true, text: "Stay close to your teammate.",
+        detail: "Arena is played in teams of two. A fight you win together beats two separate fights." },
+      { category: "Shopping", priority: true, text: "Spend your gold between rounds.",
+        detail: "Shop every time a round ends. Items here are not the Summoner's Rift build, so treat the build as a rough guide." },
+    ],
+  },
+};
+
+// Raw gameMode from the client -> "rift" (default) or a key of MODE_OVERRIDES.
+function modeKind(mode) {
+  const m = String(mode || "").toUpperCase();
+  if (m === "ARAM" || m === "KIWI") return "aram";
+  if (m === "URF" || m === "ARURF") return "urf";
+  if (m === "CHERRY") return "arena";
+  return "rift";
+}
+
+const modeCache = new WeakMap();
+
+// The guide as it should look in this mode. Rift returns the guide untouched.
+function withMode(g, kind) {
+  const o = MODE_OVERRIDES[kind];
+  if (!g || !o) return g;
+  let byKind = modeCache.get(g);
+  if (!byKind) modeCache.set(g, (byKind = {}));
+  return byKind[kind] || (byKind[kind] = { ...g, tips: o.tips, ...(g.auto && o.summoners ? { summoners: o.summoners } : {}) });
 }

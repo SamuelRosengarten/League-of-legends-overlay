@@ -46,12 +46,16 @@ struct Overlay {
     moved: AtomicBool,
     bindings: Mutex<Vec<(u32, Action)>>,
     hotkeys: Mutex<ActiveHotkeys>,
+    /// Latest game state from the poller. The page asks for it on load, because the first
+    /// event can be emitted before the page is listening.
+    game: Mutex<live::GameState>,
 }
 
 #[derive(Serialize)]
 struct Status {
     interactive: bool,
     hotkeys: ActiveHotkeys,
+    game: live::GameState,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -193,10 +197,9 @@ fn run_action(app: &AppHandle, action: Action) {
     }
 }
 
-/// Read config.json (created with defaults if missing) and register each hotkey.
-/// A bad or taken hotkey is skipped; the tray menu still works.
-fn register_hotkeys(app: &AppHandle) {
-    let keys = match config_file(app, "config.json") {
+/// Read config.json (created with defaults if missing).
+fn load_keys(app: &AppHandle) -> config::Hotkeys {
+    match config_file(app, "config.json") {
         Some(path) => match std::fs::read_to_string(&path) {
             Ok(text) => config::hotkeys_from_json(&text),
             Err(_) => {
@@ -208,9 +211,16 @@ fn register_hotkeys(app: &AppHandle) {
             }
         },
         None => config::Hotkeys::default(),
-    };
+    }
+}
+
+/// Replace all registered hotkeys with `keys`. A bad or taken hotkey is skipped (it shows
+/// as unavailable); the tray menu still works.
+fn register_all(app: &AppHandle, keys: config::Hotkeys) -> ActiveHotkeys {
     let state = app.state::<Overlay>();
     let mut bindings = state.bindings.lock().unwrap();
+    bindings.clear();
+    let _ = app.global_shortcut().unregister_all();
     let mut register = |text: String, action: Action| -> Option<String> {
         let shortcut = text.parse::<Shortcut>().ok()?;
         app.global_shortcut().register(shortcut).ok()?;
@@ -222,7 +232,56 @@ fn register_hotkeys(app: &AppHandle) {
         mode: register(keys.mode, Action::Mode),
         interact: register(keys.interact, Action::Interact),
     };
-    *state.hotkeys.lock().unwrap() = active;
+    *state.hotkeys.lock().unwrap() = active.clone();
+    active
+}
+
+fn register_hotkeys(app: &AppHandle) {
+    register_all(app, load_keys(app));
+}
+
+/// Change the hotkeys from the settings panel. All three are validated first; if one is
+/// taken by another app nothing changes. On success they are saved to config.json.
+#[tauri::command]
+fn set_hotkeys(
+    app: AppHandle,
+    toggle: String,
+    mode: String,
+    interact: String,
+) -> Result<ActiveHotkeys, String> {
+    let keys = config::Hotkeys {
+        toggle: toggle.trim().to_string(),
+        mode: mode.trim().to_string(),
+        interact: interact.trim().to_string(),
+    };
+    let named = [
+        ("Show / hide", &keys.toggle),
+        ("Compact / expanded", &keys.mode),
+        ("Interact / lock", &keys.interact),
+    ];
+    let mut ids = Vec::new();
+    for (label, text) in named {
+        let shortcut = text
+            .parse::<Shortcut>()
+            .map_err(|_| format!("{label}: \"{text}\" is not a valid hotkey."))?;
+        if ids.contains(&shortcut.id()) {
+            return Err("Each action needs a different hotkey.".into());
+        }
+        ids.push(shortcut.id());
+    }
+    let previous = load_keys(&app);
+    let active = register_all(&app, keys.clone());
+    if active.toggle.is_none() || active.mode.is_none() || active.interact.is_none() {
+        register_all(&app, previous);
+        return Err("One of those hotkeys is used by another app. Nothing was changed.".into());
+    }
+    if let Some(path) = config_file(&app, "config.json") {
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        std::fs::write(path, config::to_json(&keys)).map_err(|e| e.to_string())?;
+    }
+    Ok(active)
 }
 
 #[tauri::command]
@@ -230,6 +289,19 @@ fn get_status(state: tauri::State<Overlay>) -> Status {
     Status {
         interactive: state.interactive.load(Ordering::SeqCst),
         hotkeys: state.hotkeys.lock().unwrap().clone(),
+        game: state.game.lock().unwrap().clone(),
+    }
+}
+
+/// Show or hide the overlay without taking focus (used by "only show during a game").
+#[tauri::command]
+fn set_visible(app: AppHandle, visible: bool) {
+    if visible {
+        if let Some(w) = overlay_window(&app) {
+            let _ = w.show();
+        }
+    } else {
+        hide_inner(&app);
     }
 }
 
@@ -282,13 +354,28 @@ async fn ddragon_json(app: AppHandle, path: String) -> Result<String, String> {
         .app_cache_dir()
         .map_err(|e| e.to_string())?
         .join("ddragon");
-    tauri::async_runtime::spawn_blocking(move || ddragon::get(&ddragon::agent(), &cache, &path))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        let text = ddragon::get(&ddragon::agent(), &cache, &path)?;
+        if path == "api/versions.json" {
+            if let Some(latest) = ddragon::latest_version(&text) {
+                ddragon::prune(&cache, &latest);
+            }
+        }
+        Ok::<String, String>(text)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn main() {
     tauri::Builder::default()
+        // A second launch (e.g. double-clicking the shortcut) shows the running overlay
+        // instead of starting another one. Must be the first plugin.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = overlay_window(app) {
+                let _ = w.show();
+            }
+        }))
         .manage(Overlay::default())
         .on_window_event(|window, event| {
             if let WindowEvent::Moved(_) = event {
@@ -322,6 +409,8 @@ fn main() {
             get_status,
             set_interactive,
             hide_overlay,
+            set_visible,
+            set_hotkeys,
             fit_window,
             reset_position,
             ddragon_json
@@ -379,6 +468,7 @@ fn main() {
                         }
                     }
                     let state = live::fetch(&agent).unwrap_or_default();
+                    *handle.state::<Overlay>().game.lock().unwrap() = state.clone();
                     since_emit += 1;
                     let changed = live::GameState {
                         game_time: 0,

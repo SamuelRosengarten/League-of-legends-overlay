@@ -22,6 +22,10 @@ const MOCK_TAURI = `
     core: { invoke: async (cmd, args) => {
       window.__calls.push({ cmd, args });
       if (cmd === "get_status") return window.__status;
+      if (cmd === "set_hotkeys") {
+        if (window.__hotkeyError) throw new Error(window.__hotkeyError);
+        return { toggle: args.toggle, mode: args.mode, interact: args.interact };
+      }
       if (cmd === "ddragon_json") {
         const t = await window.__ddHost(args.path);
         if (t === null) throw new Error("offline");
@@ -338,12 +342,13 @@ test("in game: owned items are ticked and the next buy is shown with its cost", 
   await ctx.close();
 });
 
-test("champions without a guide still get their real portrait and name", async () => {
+test("a champion whose data cannot load still gets its portrait, name and a clear message", async () => {
   const page = await open();
-  await emit(page, "game-state", { ...IN_GAME, champion: "Kai'Sa" });
-  assert.equal(await page.textContent(".name"), "Kai'Sa");
+  await emit(page, "game-state", { ...IN_GAME, champion: "Ahri" });
+  assert.equal(await page.textContent(".name"), "Ahri");
   assert.equal(await page.locator(".hdr .ic-portrait img").count(), 1);
-  assert.match(await page.textContent(".empty"), /No guide for Kai'Sa yet/);
+  await page.waitForSelector(".empty-title");
+  assert.match(await page.textContent(".empty"), /Can't load Ahri/);
   await page.close();
 });
 
@@ -402,6 +407,93 @@ test("champions without a hand-written guide get one built from Data Dragon", as
   assert.match(await page.getAttribute(".skill-chips", "aria-label"), /Max Q then E then W/);
   assert.equal(await page.locator(".tips .tip").count(), 3);
   await noJunkText(page);
+  assert.deepEqual(page.errors, []);
+  await page.close();
+});
+
+test("a game already running when the page loads is picked up from get_status", async () => {
+  const ctx = await newCtx();
+  const page = await ctx.newPage();
+  await page.addInitScript(MOCK_TAURI);
+  await page.addInitScript(() => { window.__status = { ...window.__status, game: { inGame: true, champion: "Gwen", level: 3, gold: 500, gameTime: 90, gameMode: "CLASSIC", items: [] } }; });
+  await page.exposeFunction("__ddHost", (p) => { const j = ddJsonFor(p); return j ? JSON.stringify(j) : null; });
+  await page.goto(PAGE);
+  await page.waitForSelector(".live");
+  assert.match(await page.textContent(".live"), /Lv 3/);
+  await ctx.close();
+});
+
+test("only show during a game hides and shows the overlay", async () => {
+  const page = await open();
+  await page.evaluate(() => { Prefs.set({ onlyInGame: true }); });
+  await emit(page, "game-state", IN_GAME);
+  await emit(page, "game-state", { inGame: false });
+  const vis = (await calls(page, "set_visible")).map((c) => c.args.visible);
+  assert.deepEqual(vis, [true, false]);
+  await page.close();
+});
+
+test("only show during a game: turning it off shows the overlay again", async () => {
+  const page = await open();
+  await page.evaluate(() => { Prefs.set({ onlyInGame: true }); });
+  await page.click('[aria-label="Settings"]');
+  await page.uncheck('input[aria-label="Only show during a game"]');
+  assert.deepEqual((await calls(page, "set_visible")).at(-1).args, { visible: true });
+  await page.close();
+});
+
+test("hotkeys can be rebound from settings; errors are shown and Esc cancels", async () => {
+  const page = await open();
+  await page.click('[aria-label="Settings"]');
+  await page.click('[aria-label="Change Show / hide hotkey"]');
+  await page.waitForFunction(() => document.activeElement.textContent.startsWith("Press"));
+  await page.keyboard.press("Control+Alt+K");
+  assert.deepEqual((await calls(page, "set_hotkeys")).at(-1).args,
+    { toggle: "Ctrl+Alt+K", mode: "Ctrl+Shift+M", interact: "Ctrl+Shift+L" });
+  assert.ok((await page.textContent(".settings")).includes("Ctrl+Alt+K"));
+
+  // A key without a modifier is refused and nothing is sent.
+  const before = (await calls(page, "set_hotkeys")).length;
+  await page.click('[aria-label="Change Compact / expanded hotkey"]');
+  await page.waitForFunction(() => document.activeElement.textContent.startsWith("Press"));
+  await page.keyboard.press("k");
+  assert.match(await page.textContent(".settings"), /Hold Ctrl, Alt or Shift too/);
+  assert.equal((await calls(page, "set_hotkeys")).length, before);
+
+  // The backend refusing (key taken by another app) shows its message.
+  await page.evaluate(() => { window.__hotkeyError = "One of those hotkeys is used by another app."; });
+  await page.click('[aria-label="Change Interact / lock hotkey"]');
+  await page.waitForFunction(() => document.activeElement.textContent.startsWith("Press"));
+  await page.keyboard.press("Control+Shift+P");
+  assert.match(await page.textContent(".settings"), /used by another app/);
+
+  // Esc cancels capturing without locking the overlay.
+  await page.click('[aria-label="Change Show / hide hotkey"]');
+  await page.waitForFunction(() => document.activeElement.textContent.startsWith("Press"));
+  await page.keyboard.press("Escape");
+  assert.equal((await calls(page, "set_interactive")).length, 0);
+  assert.equal(await page.isVisible(".settings"), true);
+  assert.deepEqual(page.errors, []);
+  await page.close();
+});
+
+test("other game modes replace the Summoner's Rift tips; auto guides also swap spells", async () => {
+  const page = await open();
+  await emit(page, "game-state", { ...IN_GAME, champion: "Kai'Sa", gameMode: "ARAM", items: [] });
+  await page.waitForSelector(".tips .tip");
+  const tips = await page.locator(".tips .tip-text").allTextContents();
+  assert.equal(tips.length, 3);
+  assert.match(tips[0], /Stay with your team/);
+  assert.doesNotMatch(tips.join(" "), /CS|Recall|Control Ward/);
+  const spells = await page.locator(".kv", { hasText: "Spells" }).locator(".ic").evaluateAll((n) => n.map((e) => e.getAttribute("aria-label")));
+  assert.deepEqual(spells.slice(0, 2), ["Flash", "Mark"]);
+  // A hand-written guide keeps its own spells but still gets the mode's tips.
+  await emit(page, "game-state", { ...IN_GAME, champion: "Gwen", gameMode: "ARAM" });
+  assert.match(await page.textContent(".tips"), /Spend your gold every time you die/);
+  assert.equal(await page.locator(".kv", { hasText: "Spells" }).locator('.ic[aria-label="Ignite"]').count(), 1);
+  // Back on the Rift the original tips return.
+  await emit(page, "game-state", { ...IN_GAME, champion: "Gwen", gameMode: "CLASSIC" });
+  assert.match(await page.textContent(".tips"), /Last-hit minions/);
   assert.deepEqual(page.errors, []);
   await page.close();
 });

@@ -11,6 +11,8 @@ const PREF_DEFAULTS = {
   // Off by default: Riot prohibits apps that draw conclusions for the player during
   // gameplay, and it is unclear whether a live "next item" hint counts.
   liveProgress: false,
+  // Hide the overlay while no game is running and show it when one starts.
+  onlyInGame: false,
   compactWidth: 300, expandedWidth: 400, expandedMaxHeight: 560, open: {},
 };
 const PREF_KEY = "lol-overlay.prefs.v1";
@@ -30,6 +32,7 @@ const Prefs = {
     if (!TABS.includes(v.tab)) v.tab = PREF_DEFAULTS.tab;
     if (typeof v.autoScale !== "boolean") v.autoScale = PREF_DEFAULTS.autoScale;
     if (typeof v.liveProgress !== "boolean") v.liveProgress = PREF_DEFAULTS.liveProgress;
+    if (typeof v.onlyInGame !== "boolean") v.onlyInGame = PREF_DEFAULTS.onlyInGame;
     if (typeof v.open !== "object" || v.open === null) v.open = {};
     this.value = v;
     return v;
