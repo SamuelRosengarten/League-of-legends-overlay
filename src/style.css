@@ -287,8 +287,11 @@ body.locked .fold > summary::after { display: none; }
 .btn:active { background: var(--surface); }
 .btn-primary { color: var(--on-accent); background: var(--gold); border-color: var(--gold); text-shadow: none; }
 .btn-primary:hover { background: var(--gold-bright); }
+.btn-small { padding: 2px var(--sp-3); font-size: var(--fs-xs); }
 
 /* ---- Settings ---------------------------------------------------------------- */
+.hk { display: inline-flex; align-items: center; gap: var(--sp-2); justify-content: flex-end; flex-wrap: wrap; }
+.note.error { color: #ff9b8f; }
 .setting { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: var(--sp-2) var(--sp-3); padding: var(--sp-2) 0; }
 .setting-label { grid-column: 1 / -1; font-size: var(--fs-sm); color: var(--text-2); }
 .setting input[type="range"] { width: 100%; accent-color: var(--gold); }

@@ -51,6 +51,14 @@ export const GWEN = { data: { Gwen: {
   passive: { name: "A Thousand Cuts", description: "Passive official description.", image: { full: "Gwen_Passive.png" } },
 } } };
 
+const ks = (n, name, cd) => ({ id: `Kaisa${n}`, name, description: `${name} does things. It also does more.`, cooldownBurn: cd, image: { full: `Kaisa${n}.png` } });
+export const KAISA = { data: { Kaisa: {
+  id: "Kaisa", name: "Kai'Sa", title: "Daughter of the Void", image: { full: "Kaisa.png" }, tags: ["Marksman", "Assassin"],
+  info: { attack: 8, defense: 4, magic: 7, difficulty: 6 },
+  spells: [ks("Q", "Icathian Rain", "9/8/7/6/5"), ks("W", "Void Seeker", "22"), ks("E", "Supercharge", "16"), ks("R", "Killer Instinct", "130")],
+  passive: { name: "Second Skin", description: "Passive does things.", image: { full: "Kaisa_Passive.png" } },
+} } };
+
 export function ddJsonFor(path) {
   if (path === "api/versions.json") return [VERSION, "99.0.1"];
   const base = `cdn/${VERSION}/data/en_US/`;
@@ -59,9 +67,12 @@ export function ddJsonFor(path) {
     [`${base}runesReforged.json`]: RUNES,
     [`${base}summoner.json`]: SUMMONERS,
     [`${base}champion/Gwen.json`]: GWEN,
+    [`${base}champion/Kaisa.json`]: KAISA,
     [`${base}champion.json`]: { data: {
       Gwen: { id: "Gwen", name: "Gwen", image: { full: "Gwen.png" } },
       Kaisa: { id: "Kaisa", name: "Kai'Sa", image: { full: "Kaisa.png" } },
+      // Listed, but its detail file is missing: exercises the "can't load" state.
+      Ahri: { id: "Ahri", name: "Ahri", image: { full: "Ahri.png" } },
     } },
   }[path];
 }
