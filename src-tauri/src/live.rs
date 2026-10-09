@@ -18,6 +18,8 @@ pub struct GameState {
     pub level: u32,
     pub gold: u32,
     pub game_time: u32,
+    /// Raw mode from the client, e.g. "CLASSIC", "ARAM", "PRACTICETOOL".
+    pub game_mode: String,
     pub items: Vec<Item>,
 }
 
@@ -74,6 +76,11 @@ pub fn parse(body: &str) -> Option<GameState> {
             .and_then(|g| g.get("gameTime"))
             .and_then(Value::as_f64)
             .unwrap_or(0.0) as u32,
+        game_mode: data
+            .game_data
+            .as_ref()
+            .map(|g| s(g, "gameMode").to_string())
+            .unwrap_or_default(),
         items,
     })
 }
@@ -112,7 +119,7 @@ mod tests {
         {"riotId":"Sam#EUW","summonerName":"Sam","championName":"Gwen",
          "items":[{"displayName":"Doran's Blade","count":1},{"displayName":"Control Ward","count":2}]}
       ],
-      "gameData": {"gameTime": 301.9}
+      "gameData": {"gameTime": 301.9, "gameMode": "PRACTICETOOL"}
     }"#;
 
     #[test]
@@ -120,6 +127,7 @@ mod tests {
         let g = parse(SAMPLE).unwrap();
         assert_eq!(g.champion, "Gwen");
         assert_eq!((g.level, g.gold, g.game_time), (7, 1234, 301));
+        assert_eq!(g.game_mode, "PRACTICETOOL");
         assert_eq!(g.items.len(), 2);
         assert_eq!(
             g.items[1],
