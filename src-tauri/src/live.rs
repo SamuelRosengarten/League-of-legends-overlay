@@ -64,7 +64,10 @@ pub fn parse(body: &str) -> Option<GameState> {
         in_game: true,
         champion: s(me, "championName").to_string(),
         level: active.get("level").and_then(Value::as_u64).unwrap_or(1) as u32,
-        gold: active.get("currentGold").and_then(Value::as_f64).unwrap_or(0.0) as u32,
+        gold: active
+            .get("currentGold")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0) as u32,
         game_time: data
             .game_data
             .as_ref()
@@ -118,7 +121,13 @@ mod tests {
         assert_eq!(g.champion, "Gwen");
         assert_eq!((g.level, g.gold, g.game_time), (7, 1234, 301));
         assert_eq!(g.items.len(), 2);
-        assert_eq!(g.items[1], Item { name: "Control Ward".into(), count: 2 });
+        assert_eq!(
+            g.items[1],
+            Item {
+                name: "Control Ward".into(),
+                count: 2
+            }
+        );
     }
 
     #[test]

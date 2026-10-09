@@ -18,6 +18,10 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm install
+      - name: Tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Lint
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml
       - run: npm run build
       - uses: actions/upload-artifact@v4
         with:
