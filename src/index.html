@@ -7,9 +7,15 @@
 </head>
 <body>
   <main class="panel">
-    <header>LoL Overlay</header>
-    <p>Press <kbd>F1</kbd> to show or hide.</p>
-    <p class="muted">Play League in Borderless or Windowed mode so the overlay can draw on top.</p>
+    <header>LoL Overlay <span id="clock" class="muted"></span></header>
+    <section id="waiting">
+      <p>Waiting for a game to start...</p>
+      <p class="muted">Press <kbd>F1</kbd> to show or hide. Play in Borderless or Windowed mode.</p>
+    </section>
+    <section id="game" hidden>
+      <p><b id="champ"></b> &middot; level <span id="level"></span> &middot; <span id="gold"></span> gold</p>
+      <ul id="items"></ul>
+    </section>
   </main>
   <script src="main.js"></script>
 </body>

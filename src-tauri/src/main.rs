@@ -1,6 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri::{Manager, WebviewWindow};
+mod live;
+
+use tauri::{Emitter, Manager, WebviewWindow};
+use std::time::Duration;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut, ShortcutState};
 
 fn toggle(window: &WebviewWindow) {
@@ -32,6 +35,21 @@ fn main() {
                 w.set_ignore_cursor_events(true)?;
             }
             app.global_shortcut().register(toggle_key)?;
+
+            // Poll the local game API every 2s; emit only when something changed.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let agent = live::agent();
+                let mut last = live::GameState::default();
+                loop {
+                    let state = live::fetch(&agent).unwrap_or_default();
+                    if state != last {
+                        let _ = handle.emit("game-state", &state);
+                        last = state;
+                    }
+                    std::thread::sleep(Duration::from_secs(2));
+                }
+            });
             Ok(())
         })
         .run(tauri::generate_context!())
