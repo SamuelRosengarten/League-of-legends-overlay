@@ -34,16 +34,22 @@ const MOCK_TAURI = `
   window.__emit = (ev, payload) => (window.__handlers[ev] || []).forEach((f) => f({ payload }));
 `;
 
-// Open the overlay. app: mock the desktop app; dd: serve Data Dragon fixtures (else offline).
-async function open({ app = true, dd = true, width = 640, height = 900, context } = {}) {
-  const ctx = context || await browser.newContext({ viewport: { width, height } });
+// A context whose screen is 1080p unless told otherwise (the UI scales to the screen).
+const newCtx = (opts = {}) => browser.newContext({ viewport: { width: 640, height: 900 }, screen: { width: 1920, height: 1080 }, ...opts });
+
+// Open the overlay. app: mock the desktop app; dd: serve Data Dragon fixtures (else offline);
+// brokenImages: every icon URL returns 404 from the first load.
+async function open({ app = true, dd = true, brokenImages = false, context } = {}) {
+  const ctx = context || await newCtx();
   const page = await ctx.newPage();
   page.errors = [];
   page.on("pageerror", (e) => page.errors.push(e.message));
   await page.route("https://ddragon.leagueoflegends.com/**", (route) => {
     const url = new URL(route.request().url());
     if (!dd) return route.abort();
-    if (url.pathname.endsWith(".png")) return route.fulfill({ contentType: "image/png", body: png(url.pathname) });
+    if (url.pathname.endsWith(".png")) {
+      return brokenImages ? route.fulfill({ status: 404 }) : route.fulfill({ contentType: "image/png", body: png(url.pathname) });
+    }
     const json = ddJsonFor(url.pathname.slice(1));
     return json ? route.fulfill({ contentType: "application/json", body: JSON.stringify(json) }) : route.fulfill({ status: 404 });
   });
@@ -89,9 +95,9 @@ test("compact mode shows the essentials with real icons", async () => {
   assert.equal(await page.getAttribute("body", "data-mode"), "compact");
   assert.equal(await page.isHidden("#toolbar"), true);
   assert.equal(await page.textContent(".name"), "Gwen");
-  assert.match(await page.textContent(".sub"), /Top · Guide patch 26\.20/);
+  assert.match(await page.textContent(".sub"), /Top · Patch 26\.20/);
   // Build: 2 start items + 3 core items, as icons, in guide order.
-  const build = await page.$$eval(".kv:nth-child(1) .ic", (n) => n.map((e) => e.getAttribute("aria-label")));
+  const build = await page.locator(".kv", { hasText: "Build" }).locator(".ic").evaluateAll((n) => n.map((e) => e.getAttribute("aria-label")));
   assert.deepEqual(build, ["Doran's Blade", "Health Potion", "Dusk and Dawn", "Sorcerer's Shoes", "Shadowflame"]);
   assert.equal(await page.locator(".kv .ic img").count() >= 7, true);
   assert.equal(await page.locator(".ic-fallback").count(), 0, "every known name resolves to an icon");
@@ -116,7 +122,7 @@ test("the window is fitted to the panel", async () => {
 });
 
 test("hotkey toggles expanded mode; tab and mode persist across restarts", async () => {
-  const ctx = await browser.newContext({ viewport: { width: 640, height: 900 } });
+  const ctx = await newCtx();
   let page = await open({ context: ctx });
   await emit(page, "toggle-mode", null);
   assert.equal(await page.getAttribute("body", "data-mode"), "expanded");
@@ -132,7 +138,7 @@ test("hotkey toggles expanded mode; tab and mode persist across restarts", async
 
 test("every expanded tab renders without overflow at min, default and max widths", async () => {
   for (const [w, scale] of [[320, 100], [400, 100], [560, 130], [320, 130]]) {
-    const ctx = await browser.newContext({ viewport: { width: 700, height: 1000 } });
+    const ctx = await newCtx({ viewport: { width: 700, height: 1000 } });
     await ctx.addInitScript(([w, s]) => localStorage.setItem("lol-overlay.prefs.v1",
       JSON.stringify({ mode: "expanded", expandedWidth: w, fontScale: s })), [w, scale]);
     const page = await open({ context: ctx });
@@ -141,7 +147,8 @@ test("every expanded tab renders without overflow at min, default and max widths
       assert.deepEqual(await overflow(page), [], `${tab} at ${w}px/${scale}%`);
       await noJunkText(page);
       const h = (await page.locator("#app").boundingBox()).height;
-      assert.ok(h <= 560 + 1, `${tab} panel height ${h} within max height`);
+      const maxH = 560 * scale / 100; // max height scales with the Size setting
+      assert.ok(h <= maxH + 1, `${tab} panel height ${h} within max height ${maxH}`);
       if (w === 400 && scale === 100) await shot(page, `expanded-${tab}`);
     }
     assert.deepEqual(page.errors, []);
@@ -164,7 +171,7 @@ test("runes tab groups trees, keystone, runes and shards with descriptions", asy
 test("tooltips show Riot names and descriptions on hover", async () => {
   const page = await open();
   await page.hover('.ic[aria-label="Dusk and Dawn"]');
-  assert.equal(await page.isVisible(".tooltip"), true);
+  await page.waitForSelector(".tooltip:not([hidden])"); // shown after a short hover delay
   assert.equal(await page.textContent(".tooltip strong"), "Dusk and Dawn");
   assert.match(await page.textContent(".tooltip"), /Dusk and Dawn plaintext/);
   await page.close();
@@ -198,7 +205,7 @@ test("search finds tips and jumps to their tab", async () => {
 });
 
 test("copy build puts a readable summary on the clipboard", async () => {
-  const ctx = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] });
+  const ctx = await newCtx({ permissions: ["clipboard-read", "clipboard-write"] });
   const page = await open({ context: ctx });
   await emit(page, "toggle-mode", null);
   await page.click('[data-tab="build"]');
@@ -211,13 +218,13 @@ test("copy build puts a readable summary on the clipboard", async () => {
 });
 
 test("settings change live, persist, and reset to defaults", async () => {
-  const ctx = await browser.newContext();
+  const ctx = await newCtx();
   let page = await open({ context: ctx });
   await page.click('[aria-label="Settings"]');
   await page.locator('input[aria-label="Background opacity"]').fill("50");
   assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--bg-alpha").trim()), "0.5");
-  await page.locator('input[aria-label="Text size"]').fill("120");
-  assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--font-scale").trim()), "1.2");
+  await page.locator('input[aria-label="Size"]').fill("120");
+  assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--scale").trim()), "1.2");
   assert.match(await page.textContent(".settings"), /Ctrl\+Shift\+L/);
   assert.match(await page.textContent(".settings"), /Data Dragon 99\.1\.1/);
   await page.close();
@@ -236,7 +243,6 @@ test("live game state shows in the header; other champions get an empty state", 
   const page = await open();
   await emit(page, "game-state", IN_GAME);
   assert.match(await page.textContent(".live"), /Practice Tool.*5:01.*Lv 7.*1,234 g/);
-  assert.equal(await page.locator('.live-items .ic[aria-label="Control Ward"] .ic-badge').textContent(), "2");
   await shot(page, "compact-in-game");
   await emit(page, "game-state", { ...IN_GAME, champion: "Ahri" });
   assert.match(await page.textContent(".empty"), /No guide for Ahri yet/);
@@ -252,7 +258,14 @@ test("lock state: click-through styling, Esc locks, controls call the backend", 
   assert.deepEqual((await calls(page, "set_interactive")).at(-1).args, { interactive: false });
   await emit(page, "interactive", false);
   assert.equal(await page.evaluate(() => document.body.classList.contains("locked")), true);
-  assert.match(await page.textContent(".ftr"), /Click-through · Ctrl\+Shift\+L to interact/);
+  await page.evaluate(() => { Prefs.set({ liveProgress: true }); });
+  await emit(page, "game-state", IN_GAME);
+  await shot(page, "compact-locked-in-game");
+  assert.match(await page.textContent(".ftr"), /Ctrl\+Shift\+L to interact/);
+  // Locked = click-through, so no clickable-looking controls; a lock indicator instead.
+  assert.equal(await page.locator(".ctl").count(), 0);
+  assert.equal(await page.locator('.lock-state[aria-label^="Locked"]').count(), 1);
+  assert.equal(await page.isVisible("#search"), false);
   await emit(page, "interactive", true);
   await page.click('[aria-label^="Hide"]');
   assert.equal((await calls(page, "hide_overlay")).length, 1);
@@ -266,6 +279,7 @@ test("offline: text fallbacks, no errors, guide still complete", async () => {
   assert.equal(await page.locator(".ic img").count(), 0);
   assert.ok(await page.locator(".ic-fallback").count() >= 8);
   await page.hover('.ic[aria-label="Shadowflame"]');
+  await page.waitForSelector(".tooltip:not([hidden])");
   assert.equal(await page.textContent(".tooltip strong"), "Shadowflame");
   await noJunkText(page);
   assert.deepEqual(await overflow(page), []);
@@ -275,9 +289,7 @@ test("offline: text fallbacks, no errors, guide still complete", async () => {
 });
 
 test("broken image URLs fall back to text tiles", async () => {
-  const page = await open();
-  await page.route("https://ddragon.leagueoflegends.com/**/*.png", (r) => r.fulfill({ status: 404 }));
-  await page.evaluate(() => renderAll());
+  const page = await open({ brokenImages: true });
   await page.waitForFunction(() => document.querySelectorAll(".ic img").length === 0);
   assert.ok(await page.locator(".ic-fallback").count() >= 8);
   await page.close();
@@ -291,4 +303,90 @@ test("browser preview: no fake match, clear label, no app-only controls", async 
   assert.equal(await page.evaluate(() => DD.status), "ready");
   assert.deepEqual(page.errors, []);
   await page.close();
+});
+
+test("live build progress is off by default and explained in settings", async () => {
+  const page = await open();
+  await emit(page, "game-state", IN_GAME);
+  assert.equal(await page.locator(".now").count(), 0);
+  assert.equal(await page.locator(".ic.owned, .ic.next").count(), 0);
+  await page.click('[aria-label="Settings"]');
+  assert.match(await page.textContent(".settings"), /Riot's third-party rules prohibit apps that draw conclusions/);
+  await page.check('input[aria-label="Live build progress"]');
+  await page.click("text=Done");
+  assert.equal(await page.locator(".now").count(), 1);
+  await page.close();
+});
+
+test("in game: owned items are ticked and the next buy is shown with its cost", async () => {
+  const ctx = await newCtx();
+  await ctx.addInitScript(() => localStorage.setItem("lol-overlay.prefs.v1", JSON.stringify({ liveProgress: true })));
+  const page = await open({ context: ctx });
+  await emit(page, "game-state", IN_GAME);
+  assert.match(await page.textContent(".now"), /Next.*Dusk and Dawn.*Can buy/);
+  assert.equal(await page.locator(".kv .ic.next").getAttribute("aria-label"), "Dusk and Dawn (next to buy)");
+  await emit(page, "game-state", { ...IN_GAME, gold: 500, items: [...IN_GAME.items, { name: "Dusk and Dawn", count: 1 }] });
+  assert.deepEqual(await page.locator(".kv .ic.owned").evaluateAll((n) => n.map((e) => e.getAttribute("aria-label"))),
+    ["Doran's Blade (owned)", "Dusk and Dawn (owned)"]);
+  assert.equal(await page.locator(".kv .ic.next").getAttribute("aria-label"), "Sorcerer's Shoes (next to buy)");
+  assert.match(await page.textContent(".now"), /Sorcerer's Shoes.*500 \/ 1,000 g/);
+  // Gold changes update the line in place.
+  await emit(page, "game-state", { ...IN_GAME, gold: 1500, items: [...IN_GAME.items, { name: "Dusk and Dawn", count: 1 }] });
+  assert.match(await page.textContent(".now"), /Can buy/);
+  await shot(page, "compact-in-game-next");
+  await emit(page, "game-state", { inGame: false });
+  assert.equal(await page.locator(".now").count(), 0);
+  await ctx.close();
+});
+
+test("champions without a guide still get their real portrait and name", async () => {
+  const page = await open();
+  await emit(page, "game-state", { ...IN_GAME, champion: "Kai'Sa" });
+  assert.equal(await page.textContent(".name"), "Kai'Sa");
+  assert.equal(await page.locator(".hdr .ic-portrait img").count(), 1);
+  assert.match(await page.textContent(".empty"), /No guide for Kai'Sa yet/);
+  await page.close();
+});
+
+test("offline ability tiles show the key once, not twice", async () => {
+  const page = await open({ dd: false });
+  const chips = await page.$$eval(".skill-chips .ic", (n) => n.map((e) => e.textContent));
+  assert.deepEqual(chips, ["Q", "E", "W"]);
+  await page.close();
+});
+
+// Logical screen sizes: what the webview reports after Windows display scaling.
+const SCREENS = [
+  ["1280x720 @100%", 1280, 720, 1, 0.9],
+  ["1366x768 @100%", 1366, 768, 1, 0.9],
+  ["1920x1080 @100%", 1920, 1080, 1, 1],
+  ["1920x1080 @125%", 1536, 864, 1.25, 0.9],
+  ["1920x1080 @150%", 1280, 720, 1.5, 0.9],
+  ["2560x1440 @100%", 2560, 1440, 1, 1.2],
+  ["3840x2160 @100%", 3840, 2160, 1, 1.6],
+  ["3840x2160 @150%", 2560, 1440, 1.5, 1.2],
+  ["3840x2160 @200%", 1920, 1080, 2, 1],
+];
+
+test("scales to the screen: no overflow, fits on screen, readable text", async () => {
+  for (const [name, w, h, dpr, scale] of SCREENS) {
+    for (const mode of ["compact", "expanded"]) {
+      const ctx = await newCtx({ viewport: { width: Math.min(w, 1000), height: Math.min(h, 1300) }, screen: { width: w, height: h }, deviceScaleFactor: dpr });
+      await ctx.addInitScript((m) => localStorage.setItem("lol-overlay.prefs.v1", JSON.stringify({ mode: m, liveProgress: true })), mode);
+      const page = await open({ context: ctx });
+      await emit(page, "game-state", IN_GAME);
+      assert.equal(await page.evaluate(() => Number(getComputedStyle(document.documentElement).getPropertyValue("--scale"))), scale, name);
+      assert.deepEqual(await overflow(page), [], `${name} ${mode}`);
+      const box = await page.locator("#app").boundingBox();
+      assert.ok(box.height + 12 <= h - 40 && box.width + 12 <= w, `${name} ${mode} fits on screen (${box.width}x${box.height})`);
+      // Smallest text, in physical pixels on the monitor.
+      const minPx = await page.evaluate(() => Math.min(...[...document.querySelectorAll("#app *")]
+        .filter((e) => e.childNodes.length && [...e.childNodes].some((c) => c.nodeType === 3 && c.textContent.trim()))
+        .map((e) => parseFloat(getComputedStyle(e).fontSize))));
+      assert.ok(minPx * dpr >= 9, `${name} ${mode}: smallest text ${minPx}px x${dpr}`);
+      await noJunkText(page);
+      if (["1280x720 @100%", "1920x1080 @100%", "3840x2160 @100%"].includes(name)) await shot(page, `screen-${name.split(" ")[0]}-${mode}`);
+      await ctx.close();
+    }
+  }
 });

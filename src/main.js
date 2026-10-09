@@ -18,14 +18,32 @@ const S = {
 const champ = () => (S.game.inGame ? S.game.champion : DEFAULT_CHAMPION);
 const guide = () => (window.GUIDES || {})[champ()];
 const viewKey = () => (S.settings ? "settings" : Prefs.value.mode === "compact" ? "compact" : `tab:${Prefs.value.tab}`);
+// Build progress only makes sense when the guide is for the champion you are playing.
+const progress = () => (Prefs.value.liveProgress && S.game.inGame && guide() ? buildProgress(guide(), S.game.items) : NO_PROGRESS);
+
+// Size the whole UI to the screen: 1080p (logical) is 1.0, 1440p ~1.2, 4K at 100% ~1.6.
+// Windows display scaling is already in the logical height, so 4K at 200% stays 1.0.
+function autoScale() {
+  const h = (window.screen && screen.height) || 1080;
+  const s = 1 + 0.6 * (h / 1080 - 1);
+  return Math.round(Math.min(1.75, Math.max(0.9, s)) * 20) / 20;
+}
+
+function uiScale() {
+  const p = Prefs.value;
+  return (p.autoScale ? autoScale() : 1) * (p.fontScale / 100);
+}
 
 function applyPrefs() {
-  const p = Prefs.value, root = document.documentElement.style;
+  const p = Prefs.value, root = document.documentElement.style, scale = uiScale();
   root.setProperty("--bg-alpha", String(p.opacity / 100));
-  root.setProperty("--font-scale", String(p.fontScale / 100));
-  root.setProperty("--panel-w", `${p.mode === "compact" ? p.compactWidth : p.expandedWidth}px`);
-  const screenCap = (window.screen && screen.availHeight ? screen.availHeight : 1000) - 40;
-  root.setProperty("--panel-max-h", `${Math.min(p.mode === "expanded" ? p.expandedMaxHeight : 10000, screenCap)}px`);
+  root.setProperty("--scale", String(scale));
+  const width = (p.mode === "compact" ? p.compactWidth : p.expandedWidth) * scale;
+  const screenW = ((window.screen && screen.availWidth) || 1920) - 40;
+  const screenH = ((window.screen && screen.availHeight) || 1000) - 40;
+  root.setProperty("--panel-w", `${Math.round(Math.min(width, screenW))}px`);
+  const maxH = p.mode === "expanded" ? p.expandedMaxHeight * scale : screenH;
+  root.setProperty("--panel-max-h", `${Math.round(Math.min(maxH, screenH))}px`);
   document.body.dataset.mode = p.mode;
 }
 
@@ -39,38 +57,44 @@ function fmtClock(t) {
 }
 
 function renderHeader() {
-  const c = champ(), g = guide(), dd = DD.champions.get(c);
+  const c = champ(), g = guide(), dd = DD.champion(c);
   const hk = S.hotkeys || {};
   const expanded = Prefs.value.mode === "expanded";
-  const controls = [
-    controlButton(expanded ? "collapse" : "expand", `${expanded ? "Compact" : "Expanded"} view${hk.mode ? ` (${hk.mode})` : ""}`, () => setMode(expanded ? "compact" : "expanded")),
-    controlButton("gear", "Settings", () => { S.settings = !S.settings; renderAll(); }, { "aria-pressed": String(S.settings) }),
-  ];
-  if (Bridge.isApp) {
-    controls.push(
-      controlButton(S.interactive ? "unlock" : "lock", S.interactive ? "Lock: clicks go to the game" : "Locked", () => setInteractive(!S.interactive), { "aria-pressed": String(!S.interactive) }),
-      controlButton("hide", `Hide${hk.toggle ? ` (${hk.toggle})` : ""}`, () => Bridge.invoke("hide_overlay")));
+  // Controls only appear when they can actually be clicked. Locked, the overlay is
+  // click-through, so it shows a lock indicator instead (hotkeys still work).
+  let controls;
+  if (S.interactive) {
+    controls = [
+      controlButton(expanded ? "collapse" : "expand", `${expanded ? "Compact" : "Expanded"} view${hk.mode ? ` (${hk.mode})` : ""}`, () => setMode(expanded ? "compact" : "expanded")),
+      controlButton("gear", "Settings", () => { S.settings = !S.settings; renderAll(); }, { "aria-pressed": String(S.settings) }),
+    ];
+    if (Bridge.isApp) {
+      controls.push(
+        controlButton("lock", `Lock${hk.interact ? ` (${hk.interact} or Esc)` : " (Esc)"}`, () => setInteractive(false)),
+        controlButton("hide", `Hide${hk.toggle ? ` (${hk.toggle})` : ""}`, () => Bridge.send("hide_overlay")));
+    }
+  } else {
+    controls = [el("span", { class: "lock-state", role: "img", "aria-label": "Locked: clicks go to the game" }, svgIcon("lock"))];
   }
-  const sub = g ? `${g.role} · Guide patch ${g.patch}` : "No guide";
-  const header = el("header", { class: "hdr", "data-tauri-drag-region": true },
-    iconTile(c, dd, { size: "lg", kind: "portrait", focusable: false }),
-    el("div", { class: "id", "data-tauri-drag-region": true },
-      el("div", { class: "name", "data-tauri-drag-region": true, text: dd ? dd.name : c }),
-      el("div", { class: "sub", "data-tauri-drag-region": true, text: sub })),
+  const sub = g ? `${g.role} · Patch ${g.patch}` : S.game.inGame ? "No guide yet" : "";
+  const drag = { "data-tauri-drag-region": true };
+  const header = el("header", { class: "hdr", ...drag },
+    iconTile(dd ? dd.name : c, dd, { size: "lg", kind: "portrait", focusable: false, extraAttrs: drag }),
+    el("div", { class: "id", ...drag },
+      el("div", { class: "name", ...drag, text: dd ? dd.name : c }),
+      sub ? el("div", { class: "sub", ...drag, text: sub }) : null),
     el("div", { class: "controls" }, controls));
 
   let live = null;
   if (S.game.inGame) {
-    const items = (S.game.items || []).map((i) => iconTile(i.name, itemInfo(i.name), { size: "xs", badge: i.count > 1 ? String(i.count) : null }));
     live = el("div", { class: "live", "aria-label": "Live game" },
       el("span", { class: "dot", "aria-hidden": "true" }),
       el("span", { text: GAME_MODES[S.game.gameMode] || S.game.gameMode || "In game" }),
       el("span", { class: "clock", id: "clock", text: S.gameTime === null ? "" : fmtClock(S.gameTime) }),
       el("span", { text: `Lv ${S.game.level}` }),
-      el("span", { class: "gold", text: `${S.game.gold.toLocaleString()} g` }),
-      items.length ? el("span", { class: "live-items" }, items) : null);
+      el("span", { class: "gold", text: `${Math.floor(S.game.gold).toLocaleString()} g` }));
   }
-  $("hdr").replaceChildren(header, live || "");
+  $("hdr").replaceChildren(...[header, live].filter(Boolean));
 }
 
 // ---- Toolbar (expanded mode) ------------------------------------------------
@@ -106,23 +130,35 @@ function renderBody() {
   if (S.settings) {
     view = settingsView({
       hotkeys: S.hotkeys,
+      autoScale: autoScale(),
       onMode: (m) => setMode(m),
       onPrefs: () => { applyPrefs(); fitSoon(); },
+      onLiveProgress: (on) => { Prefs.set({ liveProgress: on }); },
       onReset: resetAll,
       onClose: () => { S.settings = false; renderAll(); },
     });
   } else if (!g) {
-    view = noGuideView(c);
+    view = noGuideView(DD.champion(c) ? DD.champion(c).name : c);
   } else if (Prefs.value.mode === "compact") {
-    view = compactView(g, c);
+    view = compactView(g, c, progress());
   } else if (S.query.trim()) {
     view = searchView(g, S.query, (tab) => { S.query = ""; $("search").value = ""; setTab(tab); });
   } else {
-    view = TAB_VIEWS[Prefs.value.tab](g, c);
+    view = TAB_VIEWS[Prefs.value.tab](g, c, progress());
   }
   body.dataset.view = S.query.trim() && !S.settings ? "search" : viewKey();
   body.replaceChildren(view);
   body.scrollTop = S.scroll[body.dataset.view] || 0;
+  renderNow();
+}
+
+// The "Next buy" line changes with every gold update; refresh just that line.
+function renderNow() {
+  const slot = $("now");
+  if (!slot) return;
+  const g = guide(), row = g ? nowRow(g, progress(), S.game.gold || 0) : null;
+  slot.replaceChildren(...(row ? [row] : []));
+  slot.hidden = !row;
 }
 
 // ---- Footer -----------------------------------------------------------------
@@ -130,17 +166,12 @@ function renderFooter() {
   const hk = S.hotkeys || {};
   let status;
   if (!Bridge.isApp) status = "Browser preview · not connected to the game";
-  else if (S.interactive) status = "Interactive · Esc to lock";
-  else status = hk.interact ? `Click-through · ${hk.interact} to interact` : "Click-through";
-  const keys = Bridge.isApp ? [
-    hk.toggle ? el("span", {}, el("kbd", { text: hk.toggle }), " hide") : null,
-    hk.mode ? el("span", {}, el("kbd", { text: hk.mode }), " mode") : null,
-  ] : [];
+  else if (S.interactive) status = "Unlocked · drag the header · Esc to lock";
+  else status = hk.interact ? [el("kbd", { text: hk.interact }), " to interact"] : "Click-through";
   const icons = DD.status === "loading" ? "Loading icons" : DD.status === "offline" ? "Icons offline" : null;
   $("ftr").replaceChildren(...[
     el("span", { class: "status" }, status),
-    icons ? el("span", { class: "pill", text: icons }) : null,
-    el("span", { class: "keys" }, keys),
+    icons ? el("span", { class: "pill", "data-tip-title": icons, "data-tip": DD.status === "offline" ? "Data Dragon is unreachable and nothing is cached yet. Names are shown instead." : "" , text: icons }) : null,
   ].filter(Boolean));
 }
 
@@ -167,39 +198,49 @@ function setTab(tab) {
 }
 
 function setInteractive(on) {
-  if (Bridge.isApp) Bridge.invoke("set_interactive", { interactive: on });
+  if (Bridge.isApp) Bridge.send("set_interactive", { interactive: on });
 }
 
 function resetAll() {
   Prefs.reset();
   applyPrefs();
-  if (Bridge.isApp) Bridge.invoke("reset_position");
+  if (Bridge.isApp) Bridge.send("reset_position");
   renderAll();
 }
 
-// Size the native window to the panel so the transparent area never covers the game.
-let fitPending = false, lastFit = "";
-function fitSoon() {
+// Size the native window to the panel so no transparent area covers the game.
+// If the OS ignores or changes a resize, the next resize event re-requests it.
+let fitPending = false, wanted = null;
+function fitSoon(force = false) {
   if (!Bridge.isApp || fitPending) return;
   fitPending = true;
   requestAnimationFrame(() => {
     fitPending = false;
     const r = $("app").getBoundingClientRect();
     const w = Math.ceil(r.width) + WINDOW_MARGIN * 2, h = Math.ceil(r.height) + WINDOW_MARGIN * 2;
-    const key = `${w}x${h}`;
-    if (key === lastFit) return;
-    lastFit = key;
-    Bridge.invoke("fit_window", { width: w, height: h });
+    if (!force && wanted && wanted.w === w && wanted.h === h) return;
+    wanted = { w, h };
+    Bridge.send("fit_window", { width: w, height: h });
   });
 }
+window.addEventListener("resize", () => {
+  if (wanted && (Math.abs(window.innerWidth - wanted.w) > 1 || Math.abs(window.innerHeight - wanted.h) > 1)) fitSoon(true);
+  // Moving to a monitor with another resolution can change the automatic scale.
+  if (Prefs.value.autoScale && document.documentElement.style.getPropertyValue("--scale") !== String(uiScale())) {
+    applyPrefs();
+    fitSoon();
+  }
+});
 
 // ---- Live game --------------------------------------------------------------
 function onGameState(g) {
-  const before = `${S.game.inGame}:${S.game.champion}`;
+  const prev = S.game;
   S.game = g;
   S.gameTime = g.inGame ? g.gameTime : null;
-  if (`${g.inGame}:${g.champion}` !== before) renderAll();
-  else { renderHeader(); fitSoon(); }
+  const itemsKey = (x) => (x.items || []).map((i) => `${i.name}x${i.count}`).join(",");
+  if (g.inGame !== prev.inGame || g.champion !== prev.champion) renderAll();
+  else if (itemsKey(g) !== itemsKey(prev)) { renderHeader(); renderBody(); fitSoon(); }
+  else { renderHeader(); renderNow(); fitSoon(); }
 }
 
 // The backend only sends updates on change, so the clock ticks locally between them.
@@ -215,7 +256,7 @@ document.addEventListener("keydown", (e) => {
     if (S.query) { S.query = ""; $("search").value = ""; renderToolbar(); renderBody(); }
     else if (S.settings) { S.settings = false; renderAll(); }
     else if (Bridge.isApp && S.interactive) setInteractive(false);
-  } else if (e.key === "/" && Prefs.value.mode === "expanded" && document.activeElement !== $("search")) {
+  } else if (e.key === "/" && Prefs.value.mode === "expanded" && S.interactive && document.activeElement !== $("search")) {
     e.preventDefault();
     $("search").focus();
   }
@@ -227,12 +268,18 @@ applyPrefs();
 Tooltip.init();
 buildToolbar();
 renderAll();
-new ResizeObserver(fitSoon).observe($("app"));
+new ResizeObserver(() => fitSoon()).observe($("app"));
 
 if (Bridge.isApp) {
   Bridge.listen("game-state", onGameState);
-  Bridge.listen("interactive", (on) => { S.interactive = on; if (!on) Tooltip.hide(); renderAll(); });
+  Bridge.listen("interactive", (on) => {
+    S.interactive = on;
+    if (!on) { Tooltip.hide(); if (document.activeElement) document.activeElement.blur(); }
+    renderAll();
+  });
   Bridge.listen("toggle-mode", () => setMode(Prefs.value.mode === "compact" ? "expanded" : "compact"));
-  Bridge.invoke("get_status").then((st) => { S.interactive = st.interactive; S.hotkeys = st.hotkeys; renderAll(); });
+  Bridge.invoke("get_status")
+    .then((st) => { S.interactive = st.interactive; S.hotkeys = st.hotkeys; renderAll(); })
+    .catch(() => { /* keep defaults: locked, hotkeys unknown */ });
 }
 loadDataDragon(Object.keys(window.GUIDES || {}), renderAll);

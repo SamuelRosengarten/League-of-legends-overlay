@@ -26,11 +26,42 @@ function collapsible(key, summary, body, defaultOpen = false) {
 
 const arrow = () => el("span", { class: "arrow", "aria-hidden": "true", text: "›" });
 
+// Live build progress: which guide items you already own and the next one to buy.
+// `items` are the names reported by the game for your own inventory.
+function buildProgress(g, items) {
+  const owned = new Set((items || []).map((i) => i.name));
+  const order = [...g.items.core, ...g.items.later];
+  return { live: Boolean(items), owned, next: order.find((n) => !owned.has(n)) || null };
+}
+const NO_PROGRESS = { live: false, owned: new Set(), next: null };
+
+// Classes/labels marking an item tile as owned or next.
+function progressOpts(name, p) {
+  if (!p.live) return {};
+  if (p.owned.has(name)) return { cls: "owned", extraAttrs: { "aria-label": `${name} (owned)` } };
+  if (name === p.next) return { cls: "next", extraAttrs: { "aria-label": `${name} (next to buy)` } };
+  return {};
+}
+
+// The one actionable line during a game: next item to buy and whether you can afford it.
+function nowRow(g, p, gold) {
+  if (!p.live) return null;
+  if (!p.next) return el("div", { class: "now" }, el("span", { class: "now-label", text: "Build" }), el("span", { class: "now-name", text: "Complete" }));
+  const info = itemInfo(p.next), cost = info && info.gold;
+  const ready = cost && gold >= cost;
+  return el("div", { class: `now${ready ? " now-ready" : ""}`, "aria-label": "Next item to buy" },
+    el("span", { class: "now-label", text: "Next" }),
+    iconTile(p.next, info, { size: "sm" }),
+    el("span", { class: "now-name", text: p.next }),
+    cost ? el("span", { class: "now-cost", "data-tip-title": `${cost.toLocaleString()} gold`, "data-tip": "Full item cost from Riot's data. Components can be bought earlier.",
+      text: ready ? "Can buy" : `${Math.floor(gold).toLocaleString()} / ${cost.toLocaleString()} g` }) : null);
+}
+
 // Purchase order: Start, then core items in order, optionally the later items.
-function buildFlow(g, { labels = false, later = false } = {}) {
+function buildFlow(g, { labels = false, later = false, progress = NO_PROGRESS } = {}) {
   const i = g.items;
   const tile = (name, extra = {}) => {
-    const t = iconTile(name, itemInfo(name), { size: labels ? "md" : "sm", ...extra });
+    const t = iconTile(name, itemInfo(name), { size: labels ? "md" : "sm", ...extra, ...progressOpts(name, progress) });
     return labels ? el("span", { class: "item" }, t, el("span", { class: "item-name", text: name })) : t;
   };
   const group = (label, names, kind) => el("div", { class: `flow-group flow-${kind}` },
@@ -47,9 +78,11 @@ function skillPriority(g, champ, size = "sm") {
   const chips = [];
   s.max.forEach((key, idx) => {
     if (idx) chips.push(el("span", { class: "gt", "aria-hidden": "true", text: ">" }));
-    const info = abilityInfo(champ, key);
+    const info = abilityInfo(champ, key), a = g.abilities.find((x) => x.key === key);
+    // Offline the tile itself shows the key, so the key badge would just repeat it.
     chips.push(el("span", { class: "skill" },
-      iconTile(info ? info.name : key, info, { size, badge: key, fallbackDesc: abilityText(g, key) })));
+      iconTile(`${key} · ${(a && a.name) || (info && info.name) || key}`, info,
+        { size, badge: info ? key : null, fallbackText: key, fallbackDesc: abilityText(g, key) })));
   });
   return el("div", { class: "skills-line" },
     el("div", { class: "skill-chips", "aria-label": `Max ${s.max.join(" then ")}` }, chips),
@@ -88,19 +121,21 @@ function labelled(label, content) {
 }
 
 // ---- Compact mode ----------------------------------------------------------
-function compactView(g, champ) {
+function compactView(g, champ, progress = NO_PROGRESS) {
   return el("div", { class: "stack" },
-    labelled("Build", buildFlow(g)),
+    el("div", { id: "now" }),
+    labelled("Build", buildFlow(g, { progress })),
     labelled("Skills", skillPriority(g, champ)),
     labelled("Spells", spellsRow(g)),
     reminders(g, true));
 }
 
 // ---- Expanded tabs ---------------------------------------------------------
-function overviewTab(g, champ) {
+function overviewTab(g, champ, progress = NO_PROGRESS) {
   return el("div", { class: "stack" },
+    el("div", { id: "now" }),
     el("p", { class: "summary", text: g.summary }),
-    card("Build path", buildFlow(g, { later: true })),
+    card("Build path", buildFlow(g, { later: true, progress })),
     el("div", { class: "grid2" },
       card("Skill priority", skillPriority(g, champ)),
       card("Spells & keystone", spellsRow(g))),
@@ -154,12 +189,12 @@ function copyButton(g, champ) {
   return b;
 }
 
-function buildTab(g, champ) {
+function buildTab(g, champ, progress = NO_PROGRESS) {
   const i = g.items;
   const step = (label, names, numbered) => el("div", { class: "step" },
     el("span", { class: "step-label", text: label }),
     el("div", { class: "step-items" }, names.map((n, idx) => el("span", { class: "item" },
-      iconTile(n, itemInfo(n), { size: "md", badge: numbered ? String(idx + 1) : null }),
+      iconTile(n, itemInfo(n), { size: "md", badge: numbered ? String(idx + 1) : null, ...progressOpts(n, progress) }),
       el("span", { class: "item-name", text: n === i.boots ? `${n} (boots)` : n })))));
   return el("div", { class: "stack" },
     card("Purchase order",
@@ -176,8 +211,9 @@ function skillsTab(g, champ) {
   const s = g.skillOrder;
   const abilities = g.abilities.map((a) => {
     const info = abilityInfo(champ, a.key);
+    const letter = a.key === "Passive" ? "P" : a.key;
     const summary = el("span", { class: "ability-head" },
-      iconTile(a.name, info, { size: "sm", badge: a.key === "Passive" ? "P" : a.key, focusable: false }),
+      iconTile(a.name, info, { size: "sm", badge: info ? letter : null, fallbackText: letter, focusable: false }),
       el("span", { class: "ability-name", text: a.name }),
       el("span", { class: "muted", text: a.text }));
     const body = el("div", { class: "ability-body" },

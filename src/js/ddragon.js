@@ -13,6 +13,15 @@ const DD = {
   status: "loading", // "loading" | "ready" | "offline"
   version: null,
   items: new Map(), runes: new Map(), trees: new Map(), summoners: new Map(), champions: new Map(),
+  // Every champion's portrait, by display name ("Kai'Sa") and by id ("Kaisa").
+  portraits: new Map(),
+
+  champion(name) {
+    const detail = this.champions.get(name);
+    if (detail) return detail;
+    const p = this.portraits.get(name);
+    return p ? { name: p.name, img: p.img, spells: {} } : null;
+  },
 
   shard(name) {
     const file = SHARD_ICONS[name];
@@ -93,6 +102,13 @@ async function loadDataDragon(champions, onChange) {
     ddJson(base + "summoner.json").then((j) => {
       for (const s of Object.values(j.data || {})) {
         DD.summoners.set(s.name, { img: `${DD_BASE}cdn/${v}/img/spell/${s.image.full}`, desc: ddText(s.description) });
+      }
+    }),
+    ddJson(base + "champion.json").then((j) => {
+      for (const c of Object.values(j.data || {})) {
+        const p = { name: c.name, img: `${DD_BASE}cdn/${v}/img/champion/${c.image.full}` };
+        DD.portraits.set(c.name, p);
+        DD.portraits.set(c.id, p);
       }
     }),
     ...champions.map((c) => ddJson(`${base}champion/${c}.json`).then((j) => indexChampion(j, v))),

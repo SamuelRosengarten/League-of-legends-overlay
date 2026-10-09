@@ -5,6 +5,7 @@ function slider(label, key, unit, onInput) {
   const [min, max] = PREF_LIMITS[key];
   const out = el("output", { class: "slider-value", text: `${Prefs.value[key]}${unit}` });
   const input = el("input", { type: "range", min, max, step: key === "opacity" || key === "fontScale" ? 5 : 10, value: Prefs.value[key], "aria-label": label });
+  input.addEventListener("keydown", (e) => e.stopPropagation()); // arrows adjust the slider only
   input.addEventListener("input", () => {
     Prefs.set({ [key]: Number(input.value) });
     out.textContent = `${input.value}${unit}`;
@@ -34,9 +35,19 @@ function settingsView(ctx) {
     card("Display",
       segmented("Mode", [["compact", "Compact"], ["expanded", "Expanded"]], p.mode, ctx.onMode),
       slider("Background opacity", "opacity", "%", ctx.onPrefs),
-      slider("Text size", "fontScale", "%", ctx.onPrefs),
+      el("label", { class: "setting setting-check" },
+        el("input", { type: "checkbox", checked: Prefs.value.autoScale, "aria-label": "Scale to screen",
+          onchange: (e) => { Prefs.set({ autoScale: e.target.checked }); ctx.onPrefs(); } }),
+        el("span", { class: "setting-label", text: `Scale to screen size (auto: ${Math.round(ctx.autoScale * 100)}%)` })),
+      slider("Size", "fontScale", "%", ctx.onPrefs),
       slider(`Width (${p.mode})`, widthKey, "px", ctx.onPrefs),
       p.mode === "expanded" ? slider("Max height", "expandedMaxHeight", "px", ctx.onPrefs) : null),
+    card("In game",
+      el("label", { class: "setting setting-check" },
+        el("input", { type: "checkbox", checked: Prefs.value.liveProgress, "aria-label": "Live build progress",
+          onchange: (e) => ctx.onLiveProgress(e.target.checked) }),
+        el("span", { class: "setting-label", text: "Live build progress: tick owned items and show the next one to buy" })),
+      el("p", { class: "note", text: "Off by default. Riot's third-party rules prohibit apps that draw conclusions for you during a game, and it is not clear whether this hint counts. Turn it on at your own discretion." })),
     card("Hotkeys",
       Bridge.isApp && hk ? [
         hotkeyRow("Show / hide", hk.toggle),
