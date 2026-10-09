@@ -2,22 +2,30 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>LoL Overlay</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main class="panel">
-    <header>LoL Overlay <span id="clock" class="muted"></span></header>
-    <p id="status" class="muted">Waiting for a game to start...</p>
-    <section id="game" hidden>
-      <p><b id="champ"></b> &middot; level <span id="level"></span> &middot; <span id="gold"></span> gold</p>
-      <p id="items" class="muted"></p>
-    </section>
-    <div id="guide"></div>
-    <p class="muted">Hide/show: <kbd>Ctrl+Shift+O</kbd></p>
+  <main id="app" class="panel">
+    <div id="hdr"></div>
+    <nav id="toolbar" class="toolbar" hidden>
+      <div id="tabs" class="tabs" role="tablist" aria-label="Guide sections"></div>
+      <label class="search">
+        <span class="sr-only">Search the guide</span>
+        <input id="search" type="search" placeholder="Search  /" autocomplete="off" spellcheck="false">
+      </label>
+    </nav>
+    <div id="body" class="body" role="region" aria-label="Guide"></div>
+    <footer id="ftr" class="ftr"></footer>
   </main>
   <script src="data/guides.js"></script>
-  <script src="guide.js"></script>
+  <script src="js/bridge.js"></script>
+  <script src="js/prefs.js"></script>
+  <script src="js/dom.js"></script>
+  <script src="js/ddragon.js"></script>
+  <script src="js/views.js"></script>
+  <script src="js/settings.js"></script>
   <script src="main.js"></script>
 </body>
 </html>
