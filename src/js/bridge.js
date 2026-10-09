@@ -6,6 +6,8 @@ const Bridge = (() => {
   return {
     isApp,
     invoke: (cmd, args) => (isApp ? T.core.invoke(cmd, args) : Promise.reject(new Error("not in app"))),
+    // Fire-and-forget command: a failure is logged, never an unhandled rejection.
+    send: (cmd, args) => { if (isApp) T.core.invoke(cmd, args).catch((e) => console.warn(cmd, e)); },
     listen: (event, fn) => { if (isApp) T.event.listen(event, (e) => fn(e.payload)); },
   };
 })();

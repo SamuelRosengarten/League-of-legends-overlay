@@ -2,6 +2,8 @@
 
 mod config;
 mod ddragon;
+mod focus;
+mod geometry;
 mod live;
 
 use serde::{Deserialize, Serialize};
@@ -12,7 +14,8 @@ use std::time::Duration;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, WebviewWindow,
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, PhysicalPosition,
+    WebviewWindow, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -39,6 +42,8 @@ struct ActiveHotkeys {
 #[derive(Default)]
 struct Overlay {
     interactive: AtomicBool,
+    /// Set when the window moved; the background loop saves the position.
+    moved: AtomicBool,
     bindings: Mutex<Vec<(u32, Action)>>,
     hotkeys: Mutex<ActiveHotkeys>,
 }
@@ -75,24 +80,59 @@ fn save_position(app: &AppHandle, w: &WebviewWindow) {
     }
 }
 
-/// Restore the saved position, but only if it is still on a connected monitor.
-fn restore_position(app: &AppHandle, w: &WebviewWindow) {
-    let Some(saved) = config_file(app, "window.json")
-        .and_then(|f| std::fs::read_to_string(f).ok())
-        .and_then(|t| serde_json::from_str::<SavedPosition>(&t).ok())
-    else {
+fn work_area(m: &Monitor) -> geometry::Rect {
+    let a = m.work_area();
+    geometry::Rect {
+        x: a.position.x,
+        y: a.position.y,
+        w: a.size.width as i32,
+        h: a.size.height as i32,
+    }
+}
+
+/// Move the window back inside a screen's work area if any part of it is off-screen.
+/// `size` is the physical size to check (pass the size just requested, since the OS may
+/// apply a resize asynchronously).
+fn keep_on_screen(w: &WebviewWindow, size: Option<(i32, i32)>) {
+    let Ok(pos) = w.outer_position() else {
         return;
     };
-    let on_screen = w.available_monitors().unwrap_or_default().iter().any(|m| {
-        let (p, s) = (m.position(), m.size());
-        saved.x >= p.x
-            && saved.y >= p.y
-            && saved.x < p.x + s.width as i32
-            && saved.y < p.y + s.height as i32
-    });
-    if on_screen {
+    let (width, height) = match size {
+        Some(s) => s,
+        None => match w.outer_size() {
+            Ok(s) => (s.width as i32, s.height as i32),
+            Err(_) => return,
+        },
+    };
+    let areas: Vec<_> = w
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(work_area)
+        .collect();
+    let primary = w.primary_monitor().ok().flatten().map(|m| work_area(&m));
+    let win = geometry::Rect {
+        x: pos.x,
+        y: pos.y,
+        w: width,
+        h: height,
+    };
+    if let Some((x, y)) = geometry::clamp_into(win, &areas, primary) {
+        if (x, y) != (pos.x, pos.y) {
+            let _ = w.set_position(PhysicalPosition::new(x, y));
+        }
+    }
+}
+
+/// Restore the saved position, then make sure the window is fully on a connected screen.
+fn restore_position(app: &AppHandle, w: &WebviewWindow) {
+    let saved = config_file(app, "window.json")
+        .and_then(|f| std::fs::read_to_string(f).ok())
+        .and_then(|t| serde_json::from_str::<SavedPosition>(&t).ok());
+    if let Some(saved) = saved {
         let _ = w.set_position(PhysicalPosition::new(saved.x, saved.y));
     }
+    keep_on_screen(w, None);
 }
 
 fn set_interactive_inner(app: &AppHandle, on: bool) {
@@ -102,11 +142,17 @@ fn set_interactive_inner(app: &AppHandle, on: bool) {
     if let Some(w) = overlay_window(app) {
         let _ = w.set_ignore_cursor_events(!on);
         if on {
-            // Only take focus when the user explicitly asks to interact.
+            // Only take focus when the user explicitly asks to interact, and remember
+            // which window (normally the game) had it.
+            focus::remember();
             let _ = w.show();
             let _ = w.set_focus();
         } else {
             save_position(app, &w);
+            // Give keyboard focus back to the game so the next keypress isn't lost.
+            if w.is_focused().unwrap_or(false) {
+                focus::restore();
+            }
         }
     }
     let _ = app.emit("interactive", on);
@@ -197,11 +243,26 @@ fn hide_overlay(app: AppHandle) {
     hide_inner(&app);
 }
 
-/// The UI sizes the window to fit its content (logical pixels).
+/// The UI sizes the window to fit its content (logical pixels), keeping it on screen.
 #[tauri::command]
 fn fit_window(window: WebviewWindow, width: f64, height: f64) {
+    if !width.is_finite() || !height.is_finite() {
+        return;
+    }
     let size = LogicalSize::new(width.clamp(200.0, 1200.0), height.clamp(80.0, 1600.0));
+    // The window must stay "resizable" for the OS: GTK refuses to shrink a non-resizable
+    // window even programmatically. Pinning min = max = the fitted size stops users from
+    // resizing it by its edges, so it always matches the panel.
+    let _ = window.set_min_size(None::<LogicalSize<f64>>);
+    let _ = window.set_max_size(None::<LogicalSize<f64>>);
     let _ = window.set_size(size);
+    let _ = window.set_min_size(Some(size));
+    let _ = window.set_max_size(Some(size));
+    let physical = size.to_physical::<f64>(window.scale_factor().unwrap_or(1.0));
+    keep_on_screen(
+        &window,
+        Some((physical.width as i32, physical.height as i32)),
+    );
 }
 
 #[tauri::command]
@@ -210,6 +271,7 @@ fn reset_position(app: AppHandle, window: WebviewWindow) {
         let _ = std::fs::remove_file(file);
     }
     let _ = window.set_position(LogicalPosition::new(DEFAULT_POSITION.0, DEFAULT_POSITION.1));
+    keep_on_screen(&window, None);
 }
 
 /// Data Dragon JSON with an on-disk cache (see ddragon.rs). Runs off the main thread.
@@ -228,6 +290,14 @@ async fn ddragon_json(app: AppHandle, path: String) -> Result<String, String> {
 fn main() {
     tauri::Builder::default()
         .manage(Overlay::default())
+        .on_window_event(|window, event| {
+            if let WindowEvent::Moved(_) = event {
+                window
+                    .state::<Overlay>()
+                    .moved
+                    .store(true, Ordering::SeqCst);
+            }
+        })
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -298,6 +368,16 @@ fn main() {
                 let mut last = live::GameState::default();
                 let mut since_emit = 0u32;
                 loop {
+                    // Persist a dragged position (at most every 2s, not on every move event).
+                    if handle
+                        .state::<Overlay>()
+                        .moved
+                        .swap(false, Ordering::SeqCst)
+                    {
+                        if let Some(w) = overlay_window(&handle) {
+                            save_position(&handle, &w);
+                        }
+                    }
                     let state = live::fetch(&agent).unwrap_or_default();
                     since_emit += 1;
                     let changed = live::GameState {

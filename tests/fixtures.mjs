@@ -59,6 +59,10 @@ export function ddJsonFor(path) {
     [`${base}runesReforged.json`]: RUNES,
     [`${base}summoner.json`]: SUMMONERS,
     [`${base}champion/Gwen.json`]: GWEN,
+    [`${base}champion.json`]: { data: {
+      Gwen: { id: "Gwen", name: "Gwen", image: { full: "Gwen.png" } },
+      Kaisa: { id: "Kaisa", name: "Kai'Sa", image: { full: "Kaisa.png" } },
+    } },
   }[path];
 }
 

@@ -5,7 +5,8 @@ It ships a bundled beginner guide for Gwen: runes, item build, skill order, abil
 
 ## Using it
 - Run League in **Borderless** or **Windowed** mode so the overlay can draw on top.
-- The overlay is **click-through**: your clicks go to the game.
+- The overlay is **click-through** (locked): your clicks go to the game and only a lock icon shows.
+  Press `Ctrl+Shift+L` to unlock it (teal border): then you can click, hover icons for details, drag it by the header, and open settings. `Esc` locks it and gives focus back to the game.
 - **Compact** mode shows the essentials: build icons, skill priority, spells and keystone, 3 reminders.
   **Expanded** mode has tabs (Overview, Runes, Build, Skills, Tips), search, and copy-build.
 - Icons, names and tooltips come from Riot's **Data Dragon** (latest version, detected automatically).
@@ -20,10 +21,13 @@ It ships a bundled beginner guide for Gwen: runes, item build, skill order, abil
 Change hotkeys in `%APPDATA%\com.samuelrosengarten.lol-overlay\config.json` and restart:
 `{"hotkey": "Ctrl+Shift+O", "modeHotkey": "Ctrl+Shift+M", "interactHotkey": "Ctrl+Shift+L"}`
 
-The **settings** panel (gear icon, in interact mode) adjusts mode, opacity, text size, width and max height, and can reset everything.
-Settings and the window position are remembered. The tray icon has **Show / hide**, **Interact / lock** and **Quit**.
+The **settings** panel (gear icon, when unlocked) adjusts mode, opacity, size (it also scales automatically to your screen, e.g. 1.2x at 1440p, 1.6x at 4K with 100% Windows scaling), width and max height, and can reset everything.
+Settings and the window position are remembered; the overlay is always kept fully on a connected screen. The tray icon has **Show / hide**, **Interact / lock** and **Quit**.
 
-Only Riot's official local Live Client Data API is read during games (no injection, no automation).
+## Riot policy
+Only Riot's official local Live Client Data API (your own champion, level, gold and items) and Riot's public Data Dragon are used. No injection, memory reading or automation. This app is not endorsed or approved by Riot.
+
+Riot's third-party rules prohibit apps that "draw conclusions for the player during gameplay". The optional **live build progress** (ticks owned items and shows the next one to buy) is **off by default** because it is unclear whether it counts; turn it on in Settings at your own discretion. Note that showing a static guide during a game may also fall under that rule.
 
 ## Development
 - Windows builds come from GitHub Actions (Actions tab, latest run, Artifacts).

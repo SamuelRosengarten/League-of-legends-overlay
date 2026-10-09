@@ -1806,6 +1806,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-global-shortcut",
  "ureq",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

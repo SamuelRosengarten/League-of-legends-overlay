@@ -14,8 +14,8 @@ function el(tag, attrs, ...children) {
 
 // Line icons for the header controls (16px, stroke = currentColor).
 const SVG_PATHS = {
-  expand: "M4 6l4 4 4-4",
-  collapse: "M4 10l4-4 4 4",
+  expand: "M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10",
+  collapse: "M6 2.5V6H2.5M13.5 6H10V2.5M10 13.5V10h3.5M2.5 10H6v3.5",
   gear: "M8 5.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5zM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4",
   hide: "M4 4l8 8M12 4l-8 8",
   lock: "M4.5 7V5a3.5 3.5 0 017 0v2M3.5 7h9v6.5h-9z",
@@ -44,11 +44,11 @@ function initials(name) {
 function iconTile(name, info, opts = {}) {
   const size = opts.size || "md";
   const tile = el("span", {
-    class: `ic ic-${size}${opts.kind ? " ic-" + opts.kind : ""}`,
+    class: `ic ic-${size}${opts.kind ? " ic-" + opts.kind : ""}${opts.cls ? " " + opts.cls : ""}`,
     role: "img", "aria-label": name, tabindex: opts.focusable === false ? null : "0",
     "data-tip-title": name, "data-tip": (info && info.desc) || opts.fallbackDesc || "",
   });
-  const fallback = () => tile.replaceChildren(el("span", { class: "ic-fallback", text: initials(name) }));
+  const fallback = () => tile.replaceChildren(el("span", { class: "ic-fallback", text: opts.fallbackText || initials(name) }));
   if (info && info.img) {
     const img = el("img", { src: info.img, alt: "", decoding: "async", draggable: "false" });
     img.addEventListener("error", fallback, { once: true });
@@ -57,6 +57,7 @@ function iconTile(name, info, opts = {}) {
     fallback();
   }
   if (opts.badge) tile.append(el("span", { class: "ic-badge", text: opts.badge }));
+  if (opts.extraAttrs) for (const [k, v] of Object.entries(opts.extraAttrs)) tile.setAttribute(k, v);
   return tile;
 }
 
@@ -66,13 +67,14 @@ const Tooltip = {
   init() {
     this.node = el("div", { class: "tooltip", role: "tooltip", hidden: true });
     document.body.append(this.node);
-    const show = (e) => {
-      const t = e.target.closest && e.target.closest("[data-tip-title]");
-      if (t) this.show(t);
-    };
-    document.addEventListener("mouseover", show);
-    document.addEventListener("focusin", show);
-    document.addEventListener("mouseout", (e) => { if (e.target.closest && e.target.closest("[data-tip-title]")) this.hide(); });
+    const target = (e) => e.target.closest && e.target.closest("[data-tip-title]");
+    document.addEventListener("mouseover", (e) => {
+      const t = target(e);
+      clearTimeout(this.timer);
+      if (t) this.timer = setTimeout(() => this.show(t), 250);
+    });
+    document.addEventListener("focusin", (e) => { const t = target(e); if (t) this.show(t); });
+    document.addEventListener("mouseout", (e) => { if (target(e)) this.hide(); });
     document.addEventListener("focusout", () => this.hide());
     document.addEventListener("scroll", () => this.hide(), true);
   },
@@ -89,7 +91,10 @@ const Tooltip = {
     this.node.style.left = `${left}px`;
     this.node.style.top = `${top}px`;
   },
-  hide() { if (this.node) this.node.hidden = true; },
+  hide() {
+    clearTimeout(this.timer);
+    if (this.node) this.node.hidden = true;
+  },
 };
 
 // Copy text; falls back to a hidden textarea where the async clipboard API is unavailable.
