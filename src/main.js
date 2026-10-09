@@ -1,14 +1,23 @@
 const $ = (id) => document.getElementById(id);
 
+// The backend only sends updates on change, so the clock ticks locally between them.
+let gameTime = null;
+function drawClock() {
+  if (gameTime === null) { $("clock").textContent = ""; return; }
+  const m = Math.floor(gameTime / 60), s = String(gameTime % 60).padStart(2, "0");
+  $("clock").textContent = `${m}:${s}`;
+}
+setInterval(() => { if (gameTime !== null) { gameTime += 1; drawClock(); } }, 1000);
+
 function render(g) {
   $("waiting").hidden = g.inGame;
   $("game").hidden = !g.inGame;
-  if (!g.inGame) { $("clock").textContent = ""; return; }
+  gameTime = g.inGame ? g.gameTime : null;
+  drawClock();
+  if (!g.inGame) return;
   $("champ").textContent = g.champion;
   $("level").textContent = g.level;
   $("gold").textContent = g.gold;
-  const m = String(Math.floor(g.gameTime / 60)), s = String(g.gameTime % 60).padStart(2, "0");
-  $("clock").textContent = `${m}:${s}`;
   const ul = $("items");
   ul.replaceChildren(...g.items.map((i) => {
     const li = document.createElement("li");
