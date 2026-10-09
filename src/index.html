@@ -8,15 +8,16 @@
 <body>
   <main class="panel">
     <header>LoL Overlay <span id="clock" class="muted"></span></header>
-    <section id="waiting">
-      <p>Waiting for a game to start...</p>
-      <p class="muted">Press <kbd>Ctrl+Shift+O</kbd> to show or hide. League must be in Borderless or Windowed mode.</p>
-    </section>
+    <p id="status" class="muted">Waiting for a game to start...</p>
     <section id="game" hidden>
       <p><b id="champ"></b> &middot; level <span id="level"></span> &middot; <span id="gold"></span> gold</p>
-      <ul id="items"></ul>
+      <p id="items" class="muted"></p>
     </section>
+    <div id="guide"></div>
+    <p class="muted">Hide/show: <kbd>Ctrl+Shift+O</kbd></p>
   </main>
+  <script src="data/guides.js"></script>
+  <script src="guide.js"></script>
   <script src="main.js"></script>
 </body>
 </html>
