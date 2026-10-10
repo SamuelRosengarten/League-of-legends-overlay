@@ -6,6 +6,7 @@
     "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build",
+    "test:guides": "node --test tests/guides.test.mjs",
     "test:ui": "node --test tests/ui.test.mjs",
     "check:names": "node scripts/check-names.mjs"
   },

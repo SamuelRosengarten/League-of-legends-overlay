@@ -1,7 +1,8 @@
 // Overlay controller: state, rendering, live game events and window fitting.
 const $ = (id) => document.getElementById(id);
 
-// The guide shown before a game starts. In a game it follows the champion you play.
+// The guide shown before a game starts (until another is picked). In a game it follows
+// the champion you play unless you pick another one (e.g. to read an enemy's guide).
 const DEFAULT_CHAMPION = "Gwen";
 const WINDOW_MARGIN = 6; // must match body padding in style.css
 
@@ -11,15 +12,24 @@ const S = {
   interactive: !Bridge.isApp, // in a browser preview everything is clickable
   hotkeys: null,
   settings: false,
+  picker: false,
+  // A champion picked during this game (null = follow the champion you play).
+  pick: null,
+  displayMode: "none",
   query: "",
   scroll: {},
 };
 
-const champ = () => (S.game.inGame ? S.game.champion : DEFAULT_CHAMPION);
+const champ = () => S.pick || (S.game.inGame ? S.game.champion : Prefs.value.champion || DEFAULT_CHAMPION);
 // Hand-written guides win; every other champion gets one generated from Data Dragon.
 // In other game modes the Summoner's Rift tips are swapped for ones that fit the mode.
 const guide = () => withMode((window.GUIDES || {})[champ()] || autoGuide(champ()), S.game.inGame ? modeKind(S.game.gameMode) : "rift");
-const viewKey = () => (S.settings ? "settings" : Prefs.value.mode === "compact" ? "compact" : `tab:${Prefs.value.tab}`);
+const viewKey = () => (S.settings ? "settings" : S.picker ? "picker" : Prefs.value.mode === "compact" ? "compact" : `tab:${currentTab()}`);
+// The selected tab, or Overview if this guide has no such section.
+function currentTab() {
+  const g = guide();
+  return g && guideTabs(g).includes(Prefs.value.tab) ? Prefs.value.tab : "overview";
+}
 // Build progress only makes sense when the guide is for the champion you are playing.
 const progress = () => (Prefs.value.liveProgress && S.game.inGame && guide() ? buildProgress(guide(), S.game.items) : NO_PROGRESS);
 
@@ -67,8 +77,9 @@ function renderHeader() {
   let controls;
   if (S.interactive) {
     controls = [
+      controlButton("swap", "Change champion", () => { S.picker = !S.picker; S.settings = false; renderAll(); }, { "aria-pressed": String(S.picker) }),
       controlButton(expanded ? "collapse" : "expand", `${expanded ? "Compact" : "Expanded"} view${hk.mode ? ` (${hk.mode})` : ""}`, () => setMode(expanded ? "compact" : "expanded")),
-      controlButton("gear", "Settings", () => { S.settings = !S.settings; HK.capturing = null; renderAll(); }, { "aria-pressed": String(S.settings) }),
+      controlButton("gear", "Settings", () => { S.settings = !S.settings; S.picker = false; HK.capturing = null; renderAll(); }, { "aria-pressed": String(S.settings) }),
     ];
     if (Bridge.isApp) {
       controls.push(
@@ -78,7 +89,8 @@ function renderHeader() {
   } else {
     controls = [el("span", { class: "lock-state", role: "img", "aria-label": "Locked: clicks go to the game" }, svgIcon("lock"))];
   }
-  const sub = g ? `${g.role} · ${g.auto ? "Auto guide" : `Patch ${g.patch}`}` : S.game.inGame ? "No guide yet" : "";
+  const picked = S.pick && S.game.inGame ? " · Picked" : "";
+  const sub = g ? `${g.role} · ${g.auto ? "Auto guide" : `Patch ${g.patch}`}${picked}` : S.game.inGame ? "No guide yet" : "";
   const drag = { "data-tauri-drag-region": true };
   const header = el("header", { class: "hdr", ...drag },
     iconTile(dd ? dd.name : c, dd, { size: "lg", kind: "portrait", focusable: false, extraAttrs: drag }),
@@ -96,15 +108,23 @@ function renderHeader() {
       el("span", { text: `Lv ${S.game.level}` }),
       el("span", { class: "gold", text: `${Math.floor(S.game.gold).toLocaleString()} g` }));
   }
-  $("hdr").replaceChildren(...[header, live].filter(Boolean));
+  // Exclusive fullscreen: Windows can't draw a normal window over the game.
+  const banner = S.displayMode === "fullscreen" ? el("div", { class: "banner", role: "status" },
+    el("strong", { text: "Exclusive fullscreen" }),
+    el("span", { text: " The overlay can't draw over the game in this mode. In League: Settings › Video › Window Mode › Borderless." })) : null;
+  $("hdr").replaceChildren(...[header, live, banner].filter(Boolean));
 }
 
 // ---- Toolbar (expanded mode) ------------------------------------------------
 function renderToolbar() {
-  const show = Prefs.value.mode === "expanded" && !S.settings && Boolean(guide());
+  const g = guide();
+  const show = Prefs.value.mode === "expanded" && !S.settings && !S.picker && Boolean(g);
   $("toolbar").hidden = !show;
+  const tabs = g ? guideTabs(g) : TABS, tab = currentTab();
+  $("tabs").dataset.count = String(tabs.length);
   for (const b of document.querySelectorAll("#tabs [role=tab]")) {
-    const active = b.dataset.tab === Prefs.value.tab && !S.query;
+    b.hidden = !tabs.includes(b.dataset.tab);
+    const active = b.dataset.tab === tab && !S.query;
     b.setAttribute("aria-selected", String(active));
     b.tabIndex = active ? 0 : -1;
   }
@@ -116,9 +136,10 @@ function buildToolbar() {
   })));
   $("tabs").addEventListener("keydown", (e) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-    const i = TABS.indexOf(Prefs.value.tab) + (e.key === "ArrowRight" ? 1 : -1);
-    setTab(TABS[(i + TABS.length) % TABS.length]);
-    document.querySelector(`#tabs [data-tab="${Prefs.value.tab}"]`).focus();
+    const tabs = guide() ? guideTabs(guide()) : TABS;
+    const i = tabs.indexOf(currentTab()) + (e.key === "ArrowRight" ? 1 : -1);
+    setTab(tabs[(i + tabs.length) % tabs.length]);
+    document.querySelector(`#tabs [data-tab="${currentTab()}"]`).focus();
   });
   $("search").addEventListener("input", (e) => { S.query = e.target.value; renderToolbar(); renderBody(); });
 }
@@ -132,6 +153,7 @@ function renderBody() {
   if (S.settings) {
     view = settingsView({
       hotkeys: S.hotkeys,
+      displayMode: S.displayMode,
       autoScale: autoScale(),
       onMode: (m) => setMode(m),
       onPrefs: () => { applyPrefs(); fitSoon(); },
@@ -142,6 +164,13 @@ function renderBody() {
       onReset: resetAll,
       onClose: () => { S.settings = false; HK.capturing = null; renderAll(); },
     });
+  } else if (S.picker) {
+    view = pickerView({
+      current: c,
+      playing: S.game.inGame ? S.game.champion : null,
+      onPick: pickChampion,
+      onClose: () => { S.picker = false; renderAll(); },
+    });
   } else if (!g) {
     view = noGuideView(c);
   } else if (Prefs.value.mode === "compact") {
@@ -149,9 +178,9 @@ function renderBody() {
   } else if (S.query.trim()) {
     view = searchView(g, S.query, (tab) => { S.query = ""; $("search").value = ""; setTab(tab); });
   } else {
-    view = TAB_VIEWS[Prefs.value.tab](g, c, progress());
+    view = TAB_VIEWS[currentTab()](g, c, progress());
   }
-  body.dataset.view = S.query.trim() && !S.settings ? "search" : viewKey();
+  body.dataset.view = S.query.trim() && !S.settings && !S.picker ? "search" : viewKey();
   body.replaceChildren(view);
   body.scrollTop = S.scroll[body.dataset.view] || 0;
   renderNow();
@@ -174,9 +203,12 @@ function renderFooter() {
   else if (S.interactive) status = "Unlocked · drag the header · Esc to lock";
   else status = hk.interact ? [el("kbd", { text: hk.interact }), " to interact"] : "Click-through";
   const icons = DD.status === "loading" ? "Loading icons" : DD.status === "offline" ? "Icons offline" : null;
+  // Drag the corner to change the panel's width (and max height when expanded).
+  const grip = S.interactive ? el("span", { class: "grip", role: "separator", "aria-label": "Resize", "data-tip-title": "Drag to resize", onpointerdown: startResize }) : null;
   $("ftr").replaceChildren(...[
     el("span", { class: "status" }, status),
     icons ? el("span", { class: "pill", "data-tip-title": icons, "data-tip": DD.status === "offline" ? "Data Dragon is unreachable and nothing is cached yet. Names are shown instead." : "" , text: icons }) : null,
+    grip,
   ].filter(Boolean));
 }
 
@@ -199,7 +231,45 @@ function setMode(mode) {
 function setTab(tab) {
   Prefs.set({ tab });
   S.settings = false;
+  S.picker = false;
   renderAll();
+}
+
+// Pick the guide to show. In a game, `null` (or your own champion) follows your champion.
+function pickChampion(name) {
+  if (S.game.inGame) S.pick = name && name !== S.game.champion ? name : null;
+  else if (name) { Prefs.set({ champion: name }); S.pick = null; }
+  S.picker = false;
+  S.query = "";
+  $("search").value = "";
+  ensureChampion();
+  renderAll();
+}
+
+// Resize from the footer grip. Screen coordinates keep working while the window grows.
+function startResize(e) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  const grip = e.currentTarget;
+  grip.setPointerCapture(e.pointerId);
+  const p = Prefs.value, scale = uiScale(), wKey = p.mode === "compact" ? "compactWidth" : "expandedWidth";
+  const start = { x: e.screenX, y: e.screenY, w: p[wKey], h: p.expandedMaxHeight };
+  const clamp = (key, v) => Math.min(PREF_LIMITS[key][1], Math.max(PREF_LIMITS[key][0], Math.round(v)));
+  const move = (ev) => {
+    const patch = { [wKey]: clamp(wKey, start.w + (ev.screenX - start.x) / scale) };
+    if (p.mode === "expanded") patch.expandedMaxHeight = clamp("expandedMaxHeight", start.h + (ev.screenY - start.y) / scale);
+    Prefs.set(patch);
+    applyPrefs();
+    fitSoon();
+  };
+  const end = () => {
+    grip.removeEventListener("pointermove", move);
+    grip.removeEventListener("pointerup", end);
+    grip.removeEventListener("pointercancel", end);
+  };
+  grip.addEventListener("pointermove", move);
+  grip.addEventListener("pointerup", end);
+  grip.addEventListener("pointercancel", end);
 }
 
 // Rebind hotkeys: the backend validates, registers and saves them, or explains why not.
@@ -256,6 +326,8 @@ function onGameState(g) {
   S.gameTime = g.inGame ? g.gameTime : null;
   const itemsKey = (x) => (x.items || []).map((i) => `${i.name}x${i.count}`).join(",");
   if (g.inGame !== prev.inGame) syncVisibility();
+  // A new game (or champion) shows your own champion again.
+  if (g.inGame !== prev.inGame || g.champion !== prev.champion) S.pick = null;
   if (g.inGame !== prev.inGame || g.champion !== prev.champion || g.gameMode !== prev.gameMode) { ensureChampion(); renderAll(); }
   else if (itemsKey(g) !== itemsKey(prev)) { renderHeader(); renderBody(); fitSoon(); }
   else { renderHeader(); renderNow(); fitSoon(); }
@@ -269,9 +341,9 @@ function syncVisibility(force = false) {
   else if (force) Bridge.send("set_visible", { visible: true });
 }
 
-// Fetch the played champion's abilities if its guide is generated.
+// Fetch the shown champion's abilities if its guide is generated.
 function ensureChampion() {
-  if (S.game.inGame && !(window.GUIDES || {})[champ()]) loadChampion(champ(), renderAll);
+  if (!(window.GUIDES || {})[champ()]) loadChampion(champ(), renderAll);
 }
 
 // The backend only sends updates on change, so the clock ticks locally between them.
@@ -285,9 +357,9 @@ setInterval(() => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (S.query) { S.query = ""; $("search").value = ""; renderToolbar(); renderBody(); }
-    else if (S.settings) { S.settings = false; renderAll(); }
+    else if (S.settings || S.picker) { S.settings = false; S.picker = false; renderAll(); }
     else if (Bridge.isApp && S.interactive) setInteractive(false);
-  } else if (e.key === "/" && Prefs.value.mode === "expanded" && S.interactive && document.activeElement !== $("search")) {
+  } else if (e.key === "/" && Prefs.value.mode === "expanded" && S.interactive && !S.picker && !S.settings && !/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)) {
     e.preventDefault();
     $("search").focus();
   }
@@ -309,10 +381,12 @@ if (Bridge.isApp) {
     renderAll();
   });
   Bridge.listen("toggle-mode", () => setMode(Prefs.value.mode === "compact" ? "expanded" : "compact"));
+  Bridge.listen("display-mode", (mode) => { S.displayMode = mode; renderHeader(); fitSoon(); });
   Bridge.invoke("get_status")
     .then((st) => {
       S.interactive = st.interactive;
       S.hotkeys = st.hotkeys;
+      S.displayMode = st.displayMode || "none";
       // The game may already be running (the first event can fire before this page listens).
       if (st.game && st.game.inGame) onGameState(st.game);
       else renderAll();

@@ -124,7 +124,11 @@ body:not(.locked) .hdr { cursor: move; }
 
 /* ---- Toolbar: tabs + search ---------------------------------------------------- */
 .toolbar { display: flex; flex-direction: column; gap: var(--sp-3); padding: 0 var(--sp-4) var(--sp-3); border-bottom: 1px solid var(--border); }
-.tabs { display: flex; }
+/* Tabs: one row for automatic guides (5 tabs), two rows of 4 for full guides. */
+.tabs { display: grid; grid-template-columns: repeat(5, 1fr); row-gap: var(--sp-1); }
+.tabs[data-count="8"] { grid-template-columns: repeat(4, 1fr); }
+.tabs[data-count="6"], .tabs[data-count="7"] { grid-template-columns: repeat(4, 1fr); }
+.tab[hidden] { display: none; }
 .tab {
   flex: 1; padding: var(--sp-2) 0; background: none; border: 0; border-bottom: 2px solid transparent;
   color: var(--text-3); font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
@@ -142,7 +146,8 @@ body.locked .search { display: none; } /* can't type while click-through */
 .search input::placeholder { color: var(--text-3); }
 
 /* ---- Body ------------------------------------------------------------------- */
-.body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-3) var(--sp-4) var(--sp-4); scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+/* overscroll-behavior: the wheel scrolls the guide only, never anything behind it. */
+.body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--sp-3) var(--sp-4) var(--sp-4); scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
 .stack { display: flex; flex-direction: column; gap: var(--sp-3); }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(calc(150 * var(--u)), 1fr)); gap: var(--sp-3); }
 .card { padding: var(--sp-3) var(--sp-4) var(--sp-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); min-width: 0; }
@@ -327,3 +332,81 @@ html:not(.app) .ftr .status { color: var(--text-3); }
 /* ---- Compact mode ------------------------------------------------------------ */
 body[data-mode="compact"] .body { padding-top: var(--sp-2); }
 body[data-mode="compact"] .stack { gap: var(--sp-4); }
+
+/* ---- Text selection: guide text can be selected and copied when unlocked ---------- */
+body:not(.locked) .body { user-select: text; }
+body:not(.locked) .body button, body:not(.locked) .body summary, body:not(.locked) .body .ic { user-select: none; }
+
+/* ---- Lists and small blocks ------------------------------------------------------- */
+.bullets { margin: 0; padding-left: calc(14 * var(--u)); display: flex; flex-direction: column; gap: var(--sp-1); color: var(--text-2); font-size: var(--fs-sm); }
+.bullets li::marker { color: var(--gold-dim); }
+.bullets.good li::marker { color: var(--teal); }
+.bullets.bad li::marker { color: #ff9b8f; }
+.bullets.sources .url { color: var(--text-3); overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.tag-quiet { color: var(--text-2); background: var(--surface-2); border-color: var(--border); }
+.para { margin: 0; color: var(--text-2); font-size: var(--fs-sm); }
+.icon-row.wrap { flex-wrap: wrap; }
+.kv.kv-top { align-items: baseline; padding: var(--sp-2) 0; border-top: 1px solid var(--border); }
+.kv.kv-top:first-of-type { border-top: 0; padding-top: 0; }
+.folds { display: flex; flex-direction: column; gap: var(--sp-2); }
+.fold-head { display: inline-flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+.fold-body { margin: var(--sp-2) 0 0; color: var(--text-2); font-size: var(--fs-sm); }
+.fold > .bullets { margin-top: var(--sp-2); }
+.review-head { color: #ffcf8f; font-weight: 600; }
+.named { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) 0; border-top: 1px solid var(--border); }
+.named:first-of-type { border-top: 0; padding-top: 0; }
+.named-text { display: flex; flex-direction: column; min-width: 0; }
+.named-name { font-weight: 600; }
+.named-when { font-size: var(--fs-sm); color: var(--text-3); margin: 0; }
+.alt-build { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3) 0; border-top: 1px solid var(--border); }
+.alt-build:first-of-type { border-top: 0; padding-top: 0; }
+
+/* ---- Combos: key chips ------------------------------------------------------------ */
+.combo-keys { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.kc {
+  display: inline-grid; place-items: center; min-width: calc(22 * var(--u)); height: calc(22 * var(--u)); padding: 0 var(--sp-2);
+  border-radius: var(--r-sm); font-size: var(--fs-xs); font-weight: 700; text-shadow: none;
+}
+.kc-key { color: var(--on-accent); background: var(--gold); }
+.kc-aa { color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border-strong); }
+.kc-other { color: var(--teal); background: var(--teal-wash); border: 1px solid var(--teal-dim); }
+.kc-sep { color: var(--gold-dim); font-weight: 700; }
+.combo-when { margin: var(--sp-3) 0 0; color: var(--text-2); font-size: var(--fs-sm); }
+.tier { text-transform: none; letter-spacing: 0; }
+.tier-allin { color: #ffb38f; border-color: rgba(255, 179, 143, 0.3); background: rgba(255, 179, 143, 0.1); }
+.tier-escape { color: var(--teal); border-color: var(--teal-dim); background: var(--teal-wash); }
+
+/* ---- Level-by-level skill path ------------------------------------------------------ */
+.levels { display: grid; grid-template-columns: repeat(9, 1fr); gap: var(--sp-1); }
+.lv { display: flex; flex-direction: column; align-items: center; padding: var(--sp-1) 0; border-radius: var(--r-sm); background: var(--surface-2); }
+.lv-n { font-size: var(--fs-xs); color: var(--text-3); line-height: 1.2; }
+.lv-k { font-size: var(--fs-sm); font-weight: 700; line-height: 1.2; }
+.lv-R { background: var(--gold-wash); }
+.lv-R .lv-k { color: var(--gold); }
+
+/* ---- Exclusive fullscreen banner ------------------------------------------------------ */
+.banner {
+  margin: 0 var(--sp-4) var(--sp-3); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md);
+  font-size: var(--fs-sm); color: var(--text); background: rgba(255, 179, 143, 0.12); border: 1px solid rgba(255, 179, 143, 0.4);
+}
+.banner strong { color: #ffcf8f; }
+
+/* ---- Champion picker ----------------------------------------------------------------- */
+.picker .search input { font-size: var(--fs-md); }
+.picks { list-style: none; margin: 0 0 var(--sp-3); padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(120 * var(--u)), 1fr)); gap: var(--sp-2); }
+.pick {
+  width: 100%; display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2); text-align: left; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
+}
+.pick:hover { background: var(--surface-hover); }
+.pick-current { border-color: var(--gold-dim); }
+.pick-name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick-sub { font-size: var(--fs-xs); color: var(--text-3); }
+
+/* ---- Resize grip (bottom-right corner, unlocked only) ---------------------------------- */
+.grip {
+  flex: none; width: calc(12 * var(--u)); height: calc(12 * var(--u)); margin-left: auto; cursor: nwse-resize; touch-action: none;
+  background: linear-gradient(135deg, transparent 50%, var(--text-3) 50%, var(--text-3) 60%, transparent 60%, transparent 75%, var(--text-3) 75%, var(--text-3) 85%, transparent 85%);
+}
+.grip:hover { filter: brightness(1.6); }

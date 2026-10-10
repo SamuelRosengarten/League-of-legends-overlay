@@ -2,7 +2,13 @@
 // Every function returns DOM built from the guide data; icons come from DD when available.
 
 const GAME_MODES = { CLASSIC: "Summoner's Rift", ARAM: "ARAM", PRACTICETOOL: "Practice Tool", URF: "URF", CHERRY: "Arena" };
-const TAB_LABELS = { overview: "Overview", runes: "Runes", build: "Build", skills: "Skills", tips: "Tips" };
+const TAB_LABELS = { quick: "Quick", overview: "Overview", build: "Build", runes: "Runes", skills: "Skills", combos: "Combos", matchups: "Matchups", tips: "Tips" };
+
+// Tabs a guide has content for. Automatic guides have no combos, matchups or quick page.
+function guideTabs(g) {
+  return TABS.filter((t) => (t === "quick" ? Boolean(g.quick) : t === "combos" ? Boolean(g.combos && g.combos.length)
+    : t === "matchups" ? Boolean(g.matchups || g.plan) : true));
+}
 
 const itemInfo = (n) => DD.items.get(n) || null;
 const runeInfo = (n) => DD.runes.get(n) || DD.shard(n);
@@ -120,10 +126,55 @@ function labelled(label, content) {
   return el("div", { class: "kv" }, el("span", { class: "kv-label", text: label }), content);
 }
 
+function bullets(items, cls = "") {
+  return el("ul", { class: `bullets ${cls}`.trim() }, (items || []).map((t) => el("li", { text: t })));
+}
+
+// One step of a combo: an ability key, an auto-attack, or another action (Flash, Ignite).
+const KEY_NAMES = { P: "Passive", Q: "Q", W: "W", E: "E", R: "R" };
+function keyChip(token, g, champ) {
+  if (token === "AA") return el("span", { class: "kc kc-aa", "data-tip-title": "Auto-attack", "data-tip": "A basic attack.", tabindex: "0", text: "AA" });
+  if (KEY_NAMES[token]) {
+    const a = g.abilities.find((x) => x.key === (token === "P" ? "Passive" : token));
+    const info = abilityInfo(champ, token === "P" ? "Passive" : token);
+    const name = (a && a.name) || (info && info.name) || token;
+    return el("span", { class: "kc kc-key", "data-tip-title": `${token} · ${name}`, "data-tip": (a && (a.detail || a.text)) || "", tabindex: "0", text: token });
+  }
+  const spell = spellInfo(token);
+  return el("span", { class: "kc kc-other", "data-tip-title": token, "data-tip": (spell && spell.desc) || "", tabindex: "0", text: token });
+}
+
+function comboRow(keys, g, champ) {
+  const parts = [];
+  keys.forEach((k, i) => {
+    if (i) parts.push(el("span", { class: "kc-sep", "aria-hidden": "true", text: "›" }));
+    parts.push(keyChip(k, g, champ));
+  });
+  return el("div", { class: "combo-keys", "aria-label": `Combo: ${keys.join(", then ")}` }, parts);
+}
+
+function levelPath(levels) {
+  return el("div", { class: "levels", role: "table", "aria-label": "Skill per level" }, levels.map((k, i) =>
+    el("span", { class: `lv lv-${k}`, role: "cell", "data-tip-title": `Level ${i + 1}: ${k}`, tabindex: "0" },
+      el("span", { class: "lv-n", text: String(i + 1) }), el("span", { class: "lv-k", text: k }))));
+}
+
+// A row of item icons with names, e.g. an alternative build.
+function itemStrip(names, size = "sm") {
+  return el("div", { class: "icon-row wrap" }, names.map((n) => iconTile(n, itemInfo(n), { size })));
+}
+
+function namedRow(name, info, text, kind) {
+  return el("div", { class: "named" },
+    iconTile(name, info, { size: "sm", kind, focusable: false }),
+    el("div", { class: "named-text" }, el("span", { class: "named-name", text: name }), text ? el("span", { class: "named-when", text }) : null));
+}
+
 // ---- Compact mode ----------------------------------------------------------
 function compactView(g, champ, progress = NO_PROGRESS) {
   return el("div", { class: "stack" },
     el("div", { id: "now" }),
+    g.quick ? labelled("Combo", comboRow(g.quick.combo, g, champ)) : null,
     labelled("Build", buildFlow(g, { progress })),
     labelled("Skills", skillPriority(g, champ)),
     labelled("Spells", spellsRow(g)),
@@ -139,7 +190,31 @@ function overviewTab(g, champ, progress = NO_PROGRESS) {
     el("div", { class: "grid2" },
       card("Skill priority", skillPriority(g, champ)),
       card("Spells & keystone", spellsRow(g))),
-    card("Reminders", reminders(g, false)));
+    card("Reminders", reminders(g, false)),
+    g.identity ? championCard(g) : null,
+    g.strengths ? el("div", { class: "grid2" }, card("Strengths", bullets(g.strengths, "good")), card("Weaknesses", bullets(g.weaknesses, "bad"))) : null,
+    g.winConditions ? card("How you win", bullets(g.winConditions), g.idealWhen ? el("p", { class: "note", text: `Pick when: ${g.idealWhen.join(" ")}` }) : null) : null,
+    aboutCard(g));
+}
+
+function championCard(g) {
+  return card("Champion",
+    el("div", { class: "chips" },
+      ...(g.positions || []).map((p) => el("span", { class: "tag", text: p })),
+      g.difficulty ? el("span", { class: "tag tag-quiet", text: `Difficulty: ${g.difficulty}` }) : null),
+    el("p", { class: "para", text: g.identity }));
+}
+
+// Where the guide's information comes from and what still needs checking.
+function aboutCard(g) {
+  if (g.auto) {
+    return card("About this guide", el("p", { class: "note", text: "Automatic guide: abilities come from Riot's Data Dragon; runes, items and spells are a generic template for this class. Check a build site for this champion." }));
+  }
+  return card("About this guide",
+    el("p", { class: "note", text: `Abilities and combos are stable mechanics. Runes, items, skill order and matchups are patch-dependent: checked for patch ${g.patch}${g.verified ? ` on ${g.verified}` : ""}.` }),
+    g.sources ? collapsible("about:sources", el("span", { text: "Sources" }),
+      el("ul", { class: "bullets sources" }, g.sources.map((x) => el("li", {}, el("span", { text: `${x.name}: ${x.covers}. ` }), el("span", { class: "url", text: x.url }))))) : null,
+    g.review && g.review.length ? collapsible("about:review", el("span", { class: "review-head", text: `Needs review (${g.review.length})` }), bullets(g.review), true) : null);
 }
 
 function runeRow(name, big) {
@@ -163,7 +238,14 @@ function runesTab(g) {
     card(null, el("h3", { class: "card-title" }, treeTitle(r.secondaryTree), el("span", { class: "muted", text: "Secondary" })),
       r.secondary.map((n) => runeRow(n))),
     card("Stat shards", el("div", { class: "shards" }, r.shards.map((n) =>
-      el("span", { class: "item" }, iconTile(n, runeInfo(n), { size: "sm", kind: "round" }), el("span", { class: "item-name", text: n }))))));
+      el("span", { class: "item" }, iconTile(n, runeInfo(n), { size: "sm", kind: "round" }), el("span", { class: "item-name", text: n }))))),
+    g.runeAlternatives ? card("Alternative pages", el("div", { class: "folds" }, g.runeAlternatives.map((alt) =>
+      collapsible(`runes:${alt.name}`, el("span", { class: "fold-head" }, iconTile(alt.runes.keystone, runeInfo(alt.runes.keystone), { size: "xs", kind: "round", focusable: false }), el("span", { class: "named-name", text: alt.name })),
+        el("div", { class: "fold-body" }, el("p", { text: alt.when }),
+          el("div", { class: "icon-row wrap" }, [alt.runes.keystone, ...alt.runes.primary, ...alt.runes.secondary].map((n) => iconTile(n, runeInfo(n), { size: "sm", kind: "round" })))))))) : null,
+    g.summonerAlternatives ? card("Summoner spells",
+      namedRow(g.summoners.join(" + "), spellInfo(g.summoners[1]), "Default", null),
+      g.summonerAlternatives.map((alt) => namedRow(alt.spells.join(" + "), spellInfo(alt.spells[1]), alt.when, null))) : null);
 }
 
 function buildText(g, champ) {
@@ -202,6 +284,12 @@ function buildTab(g, champ, progress = NO_PROGRESS) {
       step("Core", i.core, true),
       step("Later", i.later, true),
       el("p", { class: "note", text: "Buy in this order. Later items finish the build." })),
+    g.builds ? card("Other builds", g.builds.map((b) => el("div", { class: "alt-build" },
+      el("div", { class: "named-name", text: b.name }),
+      el("p", { class: "named-when", text: b.when }),
+      el("div", { class: "flow" }, itemStrip(b.core), arrow(), itemStrip(b.later))))) : null,
+    g.boots ? card("Boots", g.boots.map((b) => namedRow(b.item, itemInfo(b.item), b.when))) : null,
+    g.situational ? card("Situational", g.situational.map((b) => namedRow(b.item, itemInfo(b.item), b.when))) : null,
     card("Summoner spells", el("div", { class: "step-items" }, g.summoners.map((n) =>
       el("span", { class: "item" }, iconTile(n, spellInfo(n), { size: "md" }), el("span", { class: "item-name", text: n }))))),
     el("div", { class: "actions" }, copyButton(g, champ)));
@@ -218,13 +306,17 @@ function skillsTab(g, champ) {
       el("span", { class: "muted", text: a.text }));
     const body = el("div", { class: "ability-body" },
       a.detail ? el("p", { text: a.detail }) : null,
+      a.mechanics ? bullets(a.mechanics) : null,
       info && info.desc ? el("p", { class: "riot-desc" }, el("span", { class: "tag", text: "Riot" }), info.desc) : null);
     return collapsible(`ability:${a.key}`, summary, body);
   });
   return el("div", { class: "stack" },
     card("Leveling priority", skillPriority(g, champ, "md"),
       el("p", { class: "note", text: `Max ${s.max.join(", then ")}. ${s.note} This is a priority order, not a level-by-level list.` })),
-    card("Abilities", el("div", { class: "abilities" }, abilities)));
+    s.levels ? card("Level by level", levelPath(s.levels)) : null,
+    card("Abilities", el("div", { class: "abilities" }, abilities)),
+    g.mechanics ? card("Key mechanics", el("div", { class: "folds" }, g.mechanics.map((m) =>
+      collapsible(`mech:${m.name}`, el("span", { class: "named-name", text: m.name }), el("p", { class: "fold-body", text: m.text }))))) : null);
 }
 
 function tipsTab(g) {
@@ -234,7 +326,59 @@ function tipsTab(g) {
     card(cat, el("div", { class: "tips" }, tips.map((t) => tipCallout(t, false, false))))));
 }
 
-const TAB_VIEWS = { overview: overviewTab, runes: runesTab, build: buildTab, skills: skillsTab, tips: tipsTab };
+// ---- Quick reference: one screen to glance at mid-game -----------------------
+function quickTab(g, champ, progress = NO_PROGRESS) {
+  const q = g.quick;
+  return el("div", { class: "stack" },
+    el("div", { id: "now" }),
+    card("Main combo", comboRow(q.combo, g, champ), q.comboNote ? el("p", { class: "note", text: q.comboNote }) : null),
+    card("Skill order", skillPriority(g, champ)),
+    card("Core build", buildFlow(g, { progress })),
+    el("div", { class: "grid2" },
+      card("Power spikes", bullets(q.spikes)),
+      card("Spells & keystone", spellsRow(g))),
+    card("Remember", bullets(q.reminders)));
+}
+
+// ---- Combos -------------------------------------------------------------------
+const TIER_ORDER = ["Beginner", "Trade", "Advanced", "All-in", "Escape"];
+function combosTab(g, champ) {
+  const combos = [...g.combos].sort((a, b) => TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier));
+  return el("div", { class: "stack" },
+    combos.map((c) => el("section", { class: "card combo" },
+      el("h3", { class: "card-title" }, el("span", { text: c.name }), el("span", { class: `tag tier tier-${c.tier.toLowerCase().replace(/\W/g, "")}`, text: c.tier })),
+      comboRow(c.keys, g, champ),
+      el("p", { class: "combo-when", text: c.when }),
+      c.notes ? el("p", { class: "note", text: c.notes }) : null)),
+    el("p", { class: "note", text: "Hover or focus a key for the ability. AA = auto-attack." }));
+}
+
+// ---- Matchups and game plan ---------------------------------------------------
+function matchupList(key, list) {
+  return el("div", { class: "folds" }, list.map((m) => {
+    const dd = DD.champion(m.champ);
+    return collapsible(`mu:${key}:${m.champ}`, el("span", { class: "fold-head" },
+      iconTile(m.champ, dd, { size: "xs", kind: "portrait", focusable: false }), el("span", { class: "named-name", text: m.champ })),
+      el("p", { class: "fold-body", text: m.tip }));
+  }));
+}
+
+function matchupsTab(g) {
+  const p = g.plan || {}, m = g.matchups;
+  const phase = (k, label) => (p[k] ? collapsible(`plan:${k}`, el("span", { class: "named-name", text: label }), bullets(p[k]), k === "early") : null);
+  return el("div", { class: "stack" },
+    g.plan ? card("Game plan", el("div", { class: "folds" }, phase("early", "Early game"), phase("mid", "Mid game"), phase("late", "Late game"))) : null,
+    g.trading || g.waves ? el("div", { class: "grid2" },
+      g.trading ? card("Trading", bullets(g.trading)) : null,
+      g.waves ? card("Waves", bullets(g.waves)) : null) : null,
+    m && m.hard ? card("Hard matchups", matchupList("hard", m.hard)) : null,
+    m && m.easy ? card("Favorable", matchupList("easy", m.easy)) : null,
+    m && m.note ? el("p", { class: "note", text: m.note }) : null,
+    g.macro ? card("Map & teamfights", g.macro.map((x) => el("div", { class: "kv kv-top" }, el("span", { class: "kv-label", text: x.topic }), el("span", { class: "para", text: x.text })))) : null,
+    g.mistakes ? card("Mistakes to avoid", bullets(g.mistakes, "bad")) : null);
+}
+
+const TAB_VIEWS = { quick: quickTab, overview: overviewTab, build: buildTab, runes: runesTab, skills: skillsTab, combos: combosTab, matchups: matchupsTab, tips: tipsTab };
 
 // ---- Search ----------------------------------------------------------------
 function searchIndex(g) {
@@ -246,6 +390,14 @@ function searchIndex(g) {
     ...g.summoners.map((n) => ({ tab: "build", label: "Spell", text: n })),
     ...g.abilities.map((a) => ({ tab: "skills", label: a.key, text: `${a.name}: ${a.text}`, extra: a.detail })),
     ...g.tips.map((t) => ({ tab: "tips", label: t.category, text: t.text, extra: t.detail })),
+    ...(g.combos || []).map((c) => ({ tab: "combos", label: c.tier, text: `${c.name}: ${c.keys.join(" ")}`, extra: `${c.when} ${c.notes || ""}` })),
+    ...(g.mechanics || []).map((x) => ({ tab: "skills", label: "Mechanic", text: x.name, extra: x.text })),
+    ...(g.builds || []).map((b) => ({ tab: "build", label: "Build", text: b.name, extra: `${b.when} ${[...b.core, ...b.later].join(" ")}` })),
+    ...[...(g.boots || []), ...(g.situational || [])].map((b) => ({ tab: "build", label: "Item", text: b.item, extra: b.when })),
+    ...(g.runeAlternatives || []).map((r) => ({ tab: "runes", label: "Runes", text: r.name, extra: r.when })),
+    ...(g.matchups ? [...(g.matchups.hard || []), ...(g.matchups.easy || [])] : []).map((x) => ({ tab: "matchups", label: "Matchup", text: x.champ, extra: x.tip })),
+    ...(g.macro || []).map((x) => ({ tab: "matchups", label: x.topic, text: x.text })),
+    ...(g.mistakes || []).map((x) => ({ tab: "matchups", label: "Mistake", text: x })),
   ];
 }
 

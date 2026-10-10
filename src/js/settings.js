@@ -21,6 +21,13 @@ function segmented(label, options, current, onPick) {
       el("button", { type: "button", class: "seg", "aria-pressed": String(value === current), onclick: () => onPick(value) }, text))));
 }
 
+const DISPLAY_TEXT = {
+  none: "No game window found. During a match the overlay follows the game window.",
+  windowed: "Windowed: the overlay stays inside the game window and follows it.",
+  borderless: "Borderless: supported. The overlay stays on top of the game.",
+  fullscreen: "Exclusive fullscreen: Windows can't show the overlay over the game. Switch League to Borderless (Settings › Video › Window Mode). Alt+Tab shows the overlay on the desktop.",
+};
+
 // Hotkey rebinding: which row is waiting for a key press, and the last error.
 const HK = { capturing: null, error: "" };
 const HOTKEY_ROWS = [["toggle", "Show / hide"], ["mode", "Compact / expanded"], ["interact", "Interact / lock"]];
@@ -36,7 +43,9 @@ function comboFromEvent(e) {
   else if (/^Arrow(Up|Down|Left|Right)$/.test(e.code)) key = e.code.slice(5);
   else if (e.code === "Space") key = "Space";
   if (!key) return { error: "Use a letter, number, F-key, arrow or space." };
-  const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Super"].filter(Boolean);
+  // The Windows key belongs to Windows shortcuts (Start, Win+D...); never take it over.
+  if (e.metaKey) return { error: "The Windows key is reserved for Windows shortcuts. Use Ctrl, Alt or Shift." };
+  const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift"].filter(Boolean);
   if (!mods.length && !/^F\d+$/.test(key)) return { error: "Hold Ctrl, Alt or Shift too, so it does not clash with typing in the game." };
   return { combo: [...mods, key].join("+") };
 }
@@ -92,7 +101,9 @@ function settingsView(ctx) {
         ...HOTKEY_ROWS.map(hotkeyRow),
         HK.error ? el("p", { class: "note error", role: "alert", text: HK.error }) : null,
         el("p", { class: "note", text: `Saved to ${CONFIG_PATH}. Hold Ctrl, Alt or Shift with a letter, number, F-key or arrow.` }),
+        el("p", { class: "note", text: "They also work while the game is in front: the overlay only reads the key state, so nothing is blocked and the Windows key and other shortcuts keep working. League itself may disable the Windows key during a match." }),
       ] : el("p", { class: "note", text: "Hotkeys work in the desktop app." })),
+    card("Game window", el("p", { class: "note", text: DISPLAY_TEXT[ctx.displayMode] || DISPLAY_TEXT.none })),
     card("Icons & data", el("p", { class: "note", text: icons })),
     el("div", { class: "actions" },
       el("button", { type: "button", class: "btn", onclick: ctx.onReset }, "Reset to defaults"),

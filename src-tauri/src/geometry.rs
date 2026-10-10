@@ -1,6 +1,9 @@
-//! Keeping the overlay fully on a screen (physical pixels, so mixed DPI setups work).
+//! Keeping the overlay fully on a screen or inside the game window (physical pixels, so
+//! mixed DPI setups work).
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rect {
     pub x: i32,
     pub y: i32,
@@ -34,6 +37,71 @@ pub fn clamp_into(win: Rect, areas: &[Rect], fallback: Option<Rect>) -> Option<(
     let x = win.x.min(area.x + area.w - win.w).max(area.x);
     let y = win.y.min(area.y + area.h - win.h).max(area.y);
     Some((x, y))
+}
+
+pub fn contains(outer: Rect, inner: Rect) -> bool {
+    inner.x >= outer.x
+        && inner.y >= outer.y
+        && inner.x + inner.w <= outer.x + outer.w
+        && inner.y + inner.h <= outer.y + outer.h
+}
+
+/// Where the overlay sits inside the game window: a gap from the nearest horizontal and
+/// vertical edge. Anchoring to the nearest edges keeps an overlay placed in the top-right
+/// corner in that corner when the game window is resized or changes resolution.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Anchor {
+    pub right: bool,
+    pub bottom: bool,
+    pub dx: i32,
+    pub dy: i32,
+}
+
+impl Default for Anchor {
+    /// Top-left, clear of the game's own top-left HUD elements.
+    fn default() -> Self {
+        Anchor {
+            right: false,
+            bottom: false,
+            dx: 20,
+            dy: 60,
+        }
+    }
+}
+
+/// The anchor that reproduces `win`'s current place inside `area`.
+pub fn anchor_for(win: Rect, area: Rect) -> Anchor {
+    let left = win.x - area.x;
+    let right_gap = area.x + area.w - (win.x + win.w);
+    let top = win.y - area.y;
+    let bottom_gap = area.y + area.h - (win.y + win.h);
+    let right = right_gap < left;
+    let bottom = bottom_gap < top;
+    Anchor {
+        right,
+        bottom,
+        dx: (if right { right_gap } else { left }).max(0),
+        dy: (if bottom { bottom_gap } else { top }).max(0),
+    }
+}
+
+/// Top-left position for a `w` x `h` window anchored in `area`, always fully inside it
+/// (pinned to the top-left corner if it is bigger than the area).
+pub fn place(a: Anchor, w: i32, h: i32, area: Rect) -> (i32, i32) {
+    let x = if a.right {
+        area.x + area.w - w - a.dx
+    } else {
+        area.x + a.dx
+    };
+    let y = if a.bottom {
+        area.y + area.h - h - a.dy
+    } else {
+        area.y + a.dy
+    };
+    (
+        x.min(area.x + area.w - w).max(area.x),
+        y.min(area.y + area.h - h).max(area.y),
+    )
 }
 
 #[cfg(test)]
@@ -115,5 +183,68 @@ mod tests {
     #[test]
     fn no_monitors_means_no_move() {
         assert_eq!(clamp_into(win(0, 0), &[], None), None);
+    }
+
+    const GAME: Rect = Rect {
+        x: 300,
+        y: 200,
+        w: 1280,
+        h: 720,
+    };
+
+    #[test]
+    fn anchor_round_trips_in_every_corner() {
+        for (x, y) in [(320, 260), (1150, 260), (320, 280), (1150, 300)] {
+            let w = win(x, y);
+            let a = anchor_for(w, GAME);
+            assert_eq!(place(a, w.w, w.h, GAME), (x, y), "{a:?}");
+        }
+        assert!(!anchor_for(win(320, 260), GAME).right);
+        assert!(anchor_for(win(1150, 260), GAME).right);
+    }
+
+    #[test]
+    fn right_anchor_follows_a_wider_game_window() {
+        let a = anchor_for(win(1150, 260), GAME); // 30px from the right edge
+        let wider = Rect {
+            w: 1920,
+            h: 1080,
+            ..GAME
+        };
+        assert_eq!(place(a, 400, 600, wider), (300 + 1920 - 400 - 30, 260));
+    }
+
+    #[test]
+    fn place_keeps_the_overlay_inside_a_small_window() {
+        let tiny = Rect {
+            x: 0,
+            y: 0,
+            w: 640,
+            h: 480,
+        };
+        let far = Anchor {
+            right: false,
+            bottom: false,
+            dx: 900,
+            dy: 900,
+        };
+        assert_eq!(place(far, 400, 300, tiny), (240, 180));
+        assert_eq!(place(far, 800, 600, tiny), (0, 0));
+    }
+
+    #[test]
+    fn outside_positions_give_zero_gaps() {
+        let a = anchor_for(win(100, 100), GAME); // above and left of the game window
+        assert_eq!((a.dx, a.dy), (0, 0));
+        assert!(contains(
+            GAME,
+            Rect {
+                x: 300,
+                y: 200,
+                w: 400,
+                h: 600
+            }
+        ));
+        assert!(!contains(GAME, win(100, 100)));
     }
 }

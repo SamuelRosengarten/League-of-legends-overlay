@@ -165,7 +165,7 @@ test("runes tab groups trees, keystone, runes and shards with descriptions", asy
   await emit(page, "toggle-mode", null);
   await page.click('[data-tab="runes"]');
   const titles = await page.$$eval(".card-title", (n) => n.map((e) => e.textContent));
-  assert.deepEqual(titles, ["PrecisionPrimary", "ResolveSecondary", "Stat shards"]);
+  assert.deepEqual(titles, ["PrecisionPrimary", "ResolveSecondary", "Stat shards", "Alternative pages", "Summoner spells"]);
   assert.equal(await page.textContent(".rune-key .rune-name"), "Conqueror");
   assert.equal(await page.textContent(".rune-key .rune-desc"), "Conqueror short description.");
   assert.equal(await page.locator(".shards .ic img").count(), 3);
@@ -189,7 +189,7 @@ test("skills tab: priority is labelled as such and abilities expand with Riot te
   const keys = await page.$$eval(".skill-chips .ic-badge", (n) => n.map((e) => e.textContent));
   assert.deepEqual(keys, ["Q", "E", "W"]);
   await page.click(".abilities details:nth-child(3) summary");
-  assert.match(await page.textContent(".abilities details:nth-child(3)"), /turrets still can/);
+  assert.match(await page.textContent(".abilities details:nth-child(3)"), /Turrets and monsters still can/);
   assert.match(await page.textContent(".abilities details:nth-child(3)"), /Hallowed Mist official description/);
   await page.close();
 });
@@ -496,4 +496,206 @@ test("other game modes replace the Summoner's Rift tips; auto guides also swap s
   assert.match(await page.textContent(".tips"), /Last-hit minions/);
   assert.deepEqual(page.errors, []);
   await page.close();
+});
+
+// ---- Champion guides, picker and in-game interaction --------------------------
+
+const ALL_TABS = ["quick", "overview", "build", "runes", "skills", "combos", "matchups", "tips"];
+
+async function pick(page, name) {
+  await page.click('[aria-label="Change champion"]');
+  await page.fill("#champ-search", name);
+  await page.click(`.pick:has(.pick-name:text-is("${name}"))`);
+}
+
+test("all four full guides load, switch from the picker and render every tab cleanly", async () => {
+  const ctx = await newCtx({ viewport: { width: 700, height: 1000 } });
+  await ctx.addInitScript(() => localStorage.setItem("lol-overlay.prefs.v1", JSON.stringify({ mode: "expanded" })));
+  const page = await open({ context: ctx });
+  for (const [name, role] of [["Nautilus", "Support"], ["Shyvana", "Jungle"], ["Sylas", "Mid"], ["Gwen", "Top"]]) {
+    await pick(page, name);
+    assert.equal(await page.textContent(".name"), name);
+    assert.match(await page.textContent(".sub"), new RegExp(`${role} · Patch 26\\.20`));
+    const visibleTabs = await page.$$eval("#tabs [role=tab]:not([hidden])", (n) => n.map((e) => e.dataset.tab));
+    assert.deepEqual(visibleTabs, ALL_TABS, `${name} tabs`);
+    for (const tab of ALL_TABS) {
+      await page.click(`[data-tab="${tab}"]`);
+      assert.equal(await page.getAttribute(`[data-tab="${tab}"]`, "aria-selected"), "true");
+      assert.deepEqual(await overflow(page), [], `${name} ${tab} overflow`);
+      await noJunkText(page);
+      if (name === "Sylas") await shot(page, `sylas-${tab}`);
+    }
+  }
+  // The choice is remembered outside a game.
+  assert.equal(await page.evaluate(() => Prefs.value.champion), "Gwen");
+  assert.deepEqual(page.errors, []);
+  await ctx.close();
+});
+
+test("guide content is champion-specific: combos, matchups and quick reference", async () => {
+  const ctx = await newCtx();
+  await ctx.addInitScript(() => localStorage.setItem("lol-overlay.prefs.v1", JSON.stringify({ mode: "expanded", champion: "Nautilus" })));
+  const page = await open({ context: ctx });
+  await page.click('[data-tab="combos"]');
+  const tiers = await page.$$eval(".combo .tier", (n) => n.map((e) => e.textContent));
+  assert.deepEqual(tiers, ["Beginner", "Trade", "Advanced", "All-in", "Escape"]);
+  assert.match(await page.textContent(".combo"), /Hook and root/);
+  // Key chips explain themselves with the ability name.
+  await page.hover('.combo .kc-key:text-is("Q")');
+  await page.waitForSelector(".tooltip:not([hidden])");
+  assert.match(await page.textContent(".tooltip strong"), /Q · Dredge Line/);
+  await page.click('[data-tab="matchups"]');
+  assert.match(await page.textContent(".body"), /Morgana/);
+  assert.match(await page.textContent(".body"), /Hard matchups/);
+  await page.click('[data-tab="quick"]');
+  assert.match(await page.textContent(".body"), /Power spikes/);
+  await page.click('[data-tab="skills"]');
+  assert.equal(await page.locator(".levels .lv").count(), 18);
+  await page.click('[data-tab="overview"]');
+  assert.match(await page.textContent(".body"), /patch-dependent/);
+  assert.match(await page.textContent(".body"), /Needs review/);
+  // Search reaches the new sections.
+  await page.fill("#search", "morgana");
+  assert.match(await page.textContent(".results"), /Morgana/);
+  await page.click(".result");
+  assert.equal(await page.getAttribute('[data-tab="matchups"]', "aria-selected"), "true");
+  assert.deepEqual(page.errors, []);
+  await ctx.close();
+});
+
+test("compact mode shows the main combo for full guides", async () => {
+  const page = await open();
+  const combo = await page.locator(".kv", { hasText: "Combo" }).locator(".kc").allTextContents();
+  assert.deepEqual(combo, ["E", "AA", "Q", "W", "R", "AA", "R", "Q", "R"]);
+  assert.deepEqual(await overflow(page), []);
+  await page.close();
+});
+
+test("picker finds automatic-guide champions; auto guides only show the tabs they have", async () => {
+  const ctx = await newCtx();
+  await ctx.addInitScript(() => localStorage.setItem("lol-overlay.prefs.v1", JSON.stringify({ mode: "expanded" })));
+  const page = await open({ context: ctx });
+  await page.click('[aria-label="Change champion"]');
+  await page.fill("#champ-search", "kai");
+  assert.deepEqual(await page.$$eval(".pick-name", (n) => n.map((e) => e.textContent)), ["Kai'Sa"]);
+  await page.keyboard.press("Enter");
+  await page.waitForSelector(".kv, .card");
+  assert.equal(await page.textContent(".name"), "Kai'Sa");
+  assert.match(await page.textContent(".sub"), /Auto guide/);
+  const visibleTabs = await page.$$eval("#tabs [role=tab]:not([hidden])", (n) => n.map((e) => e.dataset.tab));
+  assert.deepEqual(visibleTabs, ["overview", "build", "runes", "skills", "tips"]);
+  // A tab the auto guide lacks falls back to Overview.
+  await page.evaluate(() => { Prefs.set({ tab: "combos" }); renderAll(); });
+  assert.equal(await page.getAttribute('[data-tab="overview"]', "aria-selected"), "true");
+  await page.click('[aria-label="Change champion"]');
+  await page.fill("#champ-search", "zzz");
+  assert.match(await page.textContent(".picker"), /No champion matches/);
+  await page.keyboard.press("Escape");
+  assert.equal(await page.locator(".picker").count(), 0);
+  assert.deepEqual(page.errors, []);
+  await ctx.close();
+});
+
+test("in game: read another champion's guide, then follow your own again", async () => {
+  const page = await open();
+  await emit(page, "game-state", { ...IN_GAME, champion: "Sylas" });
+  assert.equal(await page.textContent(".name"), "Sylas");
+  await pick(page, "Shyvana");
+  assert.equal(await page.textContent(".name"), "Shyvana");
+  assert.match(await page.textContent(".sub"), /Picked/);
+  // Game updates (gold, items) keep the picked guide.
+  await emit(page, "game-state", { ...IN_GAME, champion: "Sylas", gold: 2000 });
+  assert.equal(await page.textContent(".name"), "Shyvana");
+  await page.click('[aria-label="Change champion"]');
+  await page.click("text=Follow my champion (Sylas)");
+  assert.equal(await page.textContent(".name"), "Sylas");
+  // A new game always starts on your own champion.
+  await pick(page, "Gwen");
+  await emit(page, "game-state", { inGame: false });
+  await emit(page, "game-state", { ...IN_GAME, champion: "Nautilus" });
+  assert.equal(await page.textContent(".name"), "Nautilus");
+  assert.deepEqual(page.errors, []);
+  await page.close();
+});
+
+test("exclusive fullscreen shows a clear banner and the settings explain display modes", async () => {
+  const page = await open();
+  await emit(page, "display-mode", "fullscreen");
+  assert.match(await page.textContent(".banner"), /Exclusive fullscreen.*Borderless/);
+  await page.click('[aria-label="Settings"]');
+  assert.match(await page.textContent(".settings"), /Exclusive fullscreen: Windows can't show the overlay/);
+  await emit(page, "display-mode", "borderless");
+  assert.equal(await page.locator(".banner").count(), 0);
+  assert.deepEqual(page.errors, []);
+  await page.close();
+});
+
+test("display mode reported at startup is shown", async () => {
+  const ctx = await newCtx();
+  const page = await ctx.newPage();
+  await page.addInitScript(MOCK_TAURI);
+  await page.addInitScript(() => { window.__status = { ...window.__status, displayMode: "fullscreen" }; });
+  await page.exposeFunction("__ddHost", (p) => { const j = ddJsonFor(p); return j ? JSON.stringify(j) : null; });
+  await page.goto(PAGE);
+  await page.waitForSelector(".banner");
+  await ctx.close();
+});
+
+test("the Windows key can't be bound as a hotkey", async () => {
+  const page = await open();
+  await page.click('[aria-label="Settings"]');
+  await page.click('[aria-label="Change Show / hide hotkey"]');
+  await page.waitForFunction(() => document.activeElement.textContent.startsWith("Press"));
+  await page.keyboard.press("Meta+K");
+  assert.match(await page.textContent(".settings"), /Windows key is reserved/);
+  assert.equal((await calls(page, "set_hotkeys")).length, 0);
+  assert.match(await page.textContent(".settings"), /nothing is blocked/);
+  await page.close();
+});
+
+test("the page never swallows system keys", async () => {
+  const page = await open();
+  // Keys the overlay doesn't use must reach the system untouched (not default-prevented).
+  const prevented = await page.evaluate(() => ["Meta", "OS", "Tab", "F4", "a", "Escape"].map((key) => {
+    const e = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+    document.body.dispatchEvent(e);
+    return e.defaultPrevented;
+  }));
+  assert.deepEqual(prevented, [false, false, false, false, false, false]);
+  await page.close();
+});
+
+test("interactive vs click-through: controls, selection, scrolling and resize", async () => {
+  const ctx = await newCtx({ viewport: { width: 700, height: 900 } });
+  await ctx.addInitScript(() => localStorage.setItem("lol-overlay.prefs.v1", JSON.stringify({ mode: "expanded", tab: "skills", expandedMaxHeight: 300 })));
+  const page = await open({ context: ctx });
+  const style = (sel, prop) => page.$eval(sel, (e, p) => getComputedStyle(e)[p], prop);
+  // Interactive: text can be selected, the guide scrolls on its own, a resize grip exists.
+  assert.equal(await style(".body", "userSelect"), "text");
+  assert.equal(await style(".body", "overscrollBehaviorY"), "contain");
+  assert.equal(await page.locator(".grip").count(), 1);
+  const before = await page.$eval(".body", (b) => b.scrollTop);
+  await page.hover(".body");
+  await page.mouse.wheel(0, 400);
+  await page.waitForFunction((b) => document.querySelector(".body").scrollTop > b, before);
+  assert.equal(await page.evaluate(() => document.scrollingElement.scrollTop), 0, "the page itself never scrolls");
+  // Drag the grip: width and max height change, within limits.
+  const g = await page.locator(".grip").boundingBox();
+  await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(g.x + 60, g.y + 80, { steps: 4 });
+  await page.mouse.up();
+  const p = await page.evaluate(() => Prefs.value);
+  assert.ok(p.expandedWidth > 400 && p.expandedWidth <= 560, `width ${p.expandedWidth}`);
+  assert.ok(p.expandedMaxHeight > 300, `max height ${p.expandedMaxHeight}`);
+  // Click-through: no controls, no grip, no selection.
+  await emit(page, "interactive", false);
+  assert.equal(await page.locator(".grip").count(), 0);
+  assert.equal(await page.locator(".ctl").count(), 0);
+  assert.equal(await style(".body", "userSelect"), "none");
+  // And back: interacting again restores the controls.
+  await emit(page, "interactive", true);
+  assert.ok(await page.locator('[aria-label="Change champion"]').count());
+  assert.deepEqual(page.errors, []);
+  await ctx.close();
 });

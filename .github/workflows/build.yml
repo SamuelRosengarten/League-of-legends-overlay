@@ -14,6 +14,8 @@ jobs:
         with:
           node-version: 22
       - run: npm install
+      - name: Guide data tests
+        run: npm run test:guides
       - name: UI tests (Chromium, mocked game + Data Dragon)
         run: CHROME_PATH="$(which google-chrome)" npm run test:ui
 
