@@ -22,6 +22,7 @@ const SVG_PATHS = {
   unlock: "M4.5 7V5a3.5 3.5 0 016.7-1.4M3.5 7h9v6.5h-9z",
   search: "M7 2.5a4.5 4.5 0 110 9 4.5 4.5 0 010-9zM10.3 10.3L13.5 13.5",
   copy: "M5.5 5.5h7v8h-7zM3.5 10.5v-8h7",
+  swap: "M2.5 5.5h10l-2.5-2.5M13.5 10.5h-10l2.5 2.5",
 };
 function svgIcon(name) {
   const ns = "http://www.w3.org/2000/svg";

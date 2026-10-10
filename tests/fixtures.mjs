@@ -59,6 +59,16 @@ export const KAISA = { data: { Kaisa: {
   passive: { name: "Second Skin", description: "Passive does things.", image: { full: "Kaisa_Passive.png" } },
 } } };
 
+// Champions with hand-written guides (beyond Gwen), same shape as Data Dragon detail files.
+const champ = (id, name, title, spells, passive) => ({ data: { [id]: {
+  id, name, title, image: { full: `${id}.png` }, tags: ["Fighter"], info: { attack: 5, defense: 5, magic: 5, difficulty: 5 },
+  spells: spells.map((n, i) => ({ id: `${id}${"QWER"[i]}`, name: n, description: `${n} official description.`, cooldownBurn: "10", image: { full: `${id}${"QWER"[i]}.png` } })),
+  passive: { name: passive, description: `${passive} official description.`, image: { full: `${id}_P.png` } },
+} } });
+export const NAUTILUS = champ("Nautilus", "Nautilus", "the Titan of the Depths", ["Dredge Line", "Titan's Wrath", "Riptide", "Depth Charge"], "Staggering Blow");
+export const SHYVANA = champ("Shyvana", "Shyvana", "the Half-Dragon", ["Emberstrike", "Inferno Aegis", "Molten Burst", "Dragon's Descent"], "Scalemail");
+export const SYLAS = champ("Sylas", "Sylas", "the Unshackled", ["Chain Lash", "Kingslayer", "Abscond / Abduct", "Hijack"], "Petricite Burst");
+
 export function ddJsonFor(path) {
   if (path === "api/versions.json") return [VERSION, "99.0.1"];
   const base = `cdn/${VERSION}/data/en_US/`;
@@ -68,9 +78,15 @@ export function ddJsonFor(path) {
     [`${base}summoner.json`]: SUMMONERS,
     [`${base}champion/Gwen.json`]: GWEN,
     [`${base}champion/Kaisa.json`]: KAISA,
+    [`${base}champion/Nautilus.json`]: NAUTILUS,
+    [`${base}champion/Shyvana.json`]: SHYVANA,
+    [`${base}champion/Sylas.json`]: SYLAS,
     [`${base}champion.json`]: { data: {
       Gwen: { id: "Gwen", name: "Gwen", image: { full: "Gwen.png" } },
       Kaisa: { id: "Kaisa", name: "Kai'Sa", image: { full: "Kaisa.png" } },
+      Nautilus: { id: "Nautilus", name: "Nautilus", image: { full: "Nautilus.png" } },
+      Shyvana: { id: "Shyvana", name: "Shyvana", image: { full: "Shyvana.png" } },
+      Sylas: { id: "Sylas", name: "Sylas", image: { full: "Sylas.png" } },
       // Listed, but its detail file is missing: exercises the "can't load" state.
       Ahri: { id: "Ahri", name: "Ahri", image: { full: "Ahri.png" } },
     } },

@@ -45,22 +45,31 @@ for (const [mode, o] of Object.entries(ctx.MODES)) {
 const check = (who, kind, names, known) => {
   for (const n of names) if (!known.has(n)) problems.push(`${who}: ${kind} "${n}" not found`);
 };
-for (const [who, g] of guides) {
-  const i = g.items, r = g.runes;
-  check(who, "item", [...i.start, ...i.core, ...i.later], itemNames);
-  if (!i.core.concat(i.later).includes(i.boots)) problems.push(`${who}: boots "${i.boots}" is not in the build`);
+// Rune page rules: a keystone, one rune from each lower row of the primary tree, and
+// two runes from different rows of the secondary tree.
+const tree = (n) => runes.find((t) => t.name === n);
+const row = (t, n) => (t ? t.slots.findIndex((sl) => sl.runes.some((x) => x.name === n)) : -1);
+const checkPage = (who, r) => {
   check(who, "rune", [r.keystone, ...r.primary, ...r.secondary, r.primaryTree, r.secondaryTree], runeNames);
-  // Rune page rules: a keystone, one rune from each lower row of the primary tree, and
-  // two runes from different rows of the secondary tree.
-  const tree = (n) => runes.find((t) => t.name === n);
-  const row = (t, n) => (t ? t.slots.findIndex((sl) => sl.runes.some((x) => x.name === n)) : -1);
   const p1 = tree(r.primaryTree), p2 = tree(r.secondaryTree);
   if (row(p1, r.keystone) !== 0) problems.push(`${who}: keystone "${r.keystone}" is not a ${r.primaryTree} keystone`);
   r.primary.forEach((n, k) => { if (row(p1, n) !== k + 1) problems.push(`${who}: "${n}" is not in row ${k + 2} of ${r.primaryTree}`); });
   const rows = r.secondary.map((n) => row(p2, n));
   if (rows.some((x) => x < 1) || new Set(rows).size !== rows.length) problems.push(`${who}: secondary runes must be from two different rows of ${r.secondaryTree}`);
   check(who, "shard", r.shards, shardNames);
+};
+for (const [who, g] of guides) {
+  const i = g.items;
+  check(who, "item", [...i.start, ...i.core, ...i.later], itemNames);
+  if (!i.core.concat(i.later).includes(i.boots)) problems.push(`${who}: boots "${i.boots}" is not in the build`);
+  checkPage(who, g.runes);
   check(who, "summoner spell", g.summoners, spellNames);
+  // Optional sections of hand-written guides.
+  for (const b of g.builds || []) check(`${who} build "${b.name}"`, "item", [...b.core, ...b.later], itemNames);
+  check(who, "boots option", (g.boots || []).map((b) => b.item), itemNames);
+  check(who, "situational item", (g.situational || []).map((s) => s.item), itemNames);
+  for (const alt of g.runeAlternatives || []) checkPage(`${who} runes "${alt.name}"`, alt.runes);
+  for (const alt of g.summonerAlternatives || []) check(who, "summoner spell", alt.spells, spellNames);
 }
 
 console.log(`Data Dragon ${version}: checked ${guides.length} guides/templates.`);

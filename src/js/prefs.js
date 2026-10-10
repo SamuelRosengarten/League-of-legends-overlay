@@ -13,10 +13,12 @@ const PREF_DEFAULTS = {
   liveProgress: false,
   // Hide the overlay while no game is running and show it when one starts.
   onlyInGame: false,
+  // The guide shown outside a game (picked in the champion list).
+  champion: "Gwen",
   compactWidth: 300, expandedWidth: 400, expandedMaxHeight: 560, open: {},
 };
 const PREF_KEY = "lol-overlay.prefs.v1";
-const TABS = ["overview", "runes", "build", "skills", "tips"];
+const TABS = ["quick", "overview", "build", "runes", "skills", "combos", "matchups", "tips"];
 
 const Prefs = {
   value: { ...PREF_DEFAULTS },
@@ -34,6 +36,7 @@ const Prefs = {
     if (typeof v.liveProgress !== "boolean") v.liveProgress = PREF_DEFAULTS.liveProgress;
     if (typeof v.onlyInGame !== "boolean") v.onlyInGame = PREF_DEFAULTS.onlyInGame;
     if (typeof v.open !== "object" || v.open === null) v.open = {};
+    if (typeof v.champion !== "string" || !v.champion.trim()) v.champion = PREF_DEFAULTS.champion;
     this.value = v;
     return v;
   },
