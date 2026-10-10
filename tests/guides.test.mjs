@@ -15,7 +15,7 @@ vm.runInContext(fs.readFileSync(path.join(root, "src/data/guides.js"), "utf8"), 
 // JSON round trip: arrays from the vm context have another realm's prototype.
 const GUIDES = JSON.parse(JSON.stringify(ctx.window.GUIDES));
 
-const REQUIRED = ["Gwen", "Nautilus", "Shyvana", "Sylas"];
+const REQUIRED = ["Gwen", "Vel'Koz", "Shyvana", "Sylas"];
 const KEYS = ["Passive", "Q", "W", "E", "R"];
 const TIERS = ["Beginner", "Trade", "Advanced", "All-in", "Escape"];
 const COMBO_TOKEN = /^(P|Q|W|E|R|AA|Flash|Ignite|Exhaust|Smite)$/;

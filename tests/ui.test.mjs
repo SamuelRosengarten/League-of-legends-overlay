@@ -512,7 +512,7 @@ test("all four full guides load, switch from the picker and render every tab cle
   const ctx = await newCtx({ viewport: { width: 700, height: 1000 } });
   await ctx.addInitScript(() => localStorage.setItem("lol-overlay.prefs.v1", JSON.stringify({ mode: "expanded" })));
   const page = await open({ context: ctx });
-  for (const [name, role] of [["Nautilus", "Support"], ["Shyvana", "Jungle"], ["Sylas", "Mid"], ["Gwen", "Top"]]) {
+  for (const [name, role] of [["Vel'Koz", "Mid"], ["Shyvana", "Jungle"], ["Sylas", "Mid"], ["Gwen", "Top"]]) {
     await pick(page, name);
     assert.equal(await page.textContent(".name"), name);
     assert.match(await page.textContent(".sub"), new RegExp(`${role} · Patch 26\\.20`));
@@ -534,29 +534,32 @@ test("all four full guides load, switch from the picker and render every tab cle
 
 test("guide content is champion-specific: combos, matchups and quick reference", async () => {
   const ctx = await newCtx();
-  await ctx.addInitScript(() => localStorage.setItem("lol-overlay.prefs.v1", JSON.stringify({ mode: "expanded", champion: "Nautilus" })));
+  await ctx.addInitScript(() => localStorage.setItem("lol-overlay.prefs.v1", JSON.stringify({ mode: "expanded", champion: "Vel'Koz" })));
   const page = await open({ context: ctx });
   await page.click('[data-tab="combos"]');
   const tiers = await page.$$eval(".combo .tier", (n) => n.map((e) => e.textContent));
   assert.deepEqual(tiers, ["Beginner", "Trade", "Advanced", "All-in", "Escape"]);
-  assert.match(await page.textContent(".combo"), /Hook and root/);
+  assert.match(await page.textContent(".combo"), /Guaranteed burst/);
   // Key chips explain themselves with the ability name.
   await page.hover('.combo .kc-key:text-is("Q")');
   await page.waitForSelector(".tooltip:not([hidden])");
-  assert.match(await page.textContent(".tooltip strong"), /Q · Dredge Line/);
+  assert.match(await page.textContent(".tooltip strong"), /Q · Plasma Fission/);
   await page.click('[data-tab="matchups"]');
-  assert.match(await page.textContent(".body"), /Morgana/);
+  assert.match(await page.textContent(".body"), /Katarina/);
   assert.match(await page.textContent(".body"), /Hard matchups/);
   await page.click('[data-tab="quick"]');
   assert.match(await page.textContent(".body"), /Power spikes/);
   await page.click('[data-tab="skills"]');
   assert.equal(await page.locator(".levels .lv").count(), 18);
+  // "Vel'Koz" is loaded from Data Dragon's "Velkoz" file: abilities get real icons.
+  assert.ok(await page.evaluate(() => DD.champions.has("Vel'Koz")));
+  assert.equal(await page.locator(".abilities .ic img").count(), 5);
   await page.click('[data-tab="overview"]');
   assert.match(await page.textContent(".body"), /patch-dependent/);
   assert.match(await page.textContent(".body"), /Needs review/);
   // Search reaches the new sections.
-  await page.fill("#search", "morgana");
-  assert.match(await page.textContent(".results"), /Morgana/);
+  await page.fill("#search", "katarina");
+  assert.match(await page.textContent(".results"), /Katarina/);
   await page.click(".result");
   assert.equal(await page.getAttribute('[data-tab="matchups"]', "aria-selected"), "true");
   assert.deepEqual(page.errors, []);
@@ -612,8 +615,8 @@ test("in game: read another champion's guide, then follow your own again", async
   // A new game always starts on your own champion.
   await pick(page, "Gwen");
   await emit(page, "game-state", { inGame: false });
-  await emit(page, "game-state", { ...IN_GAME, champion: "Nautilus" });
-  assert.equal(await page.textContent(".name"), "Nautilus");
+  await emit(page, "game-state", { ...IN_GAME, champion: "Vel'Koz" });
+  assert.equal(await page.textContent(".name"), "Vel'Koz");
   assert.deepEqual(page.errors, []);
   await page.close();
 });

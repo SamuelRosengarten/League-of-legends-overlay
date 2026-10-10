@@ -65,7 +65,8 @@ const champ = (id, name, title, spells, passive) => ({ data: { [id]: {
   spells: spells.map((n, i) => ({ id: `${id}${"QWER"[i]}`, name: n, description: `${n} official description.`, cooldownBurn: "10", image: { full: `${id}${"QWER"[i]}.png` } })),
   passive: { name: passive, description: `${passive} official description.`, image: { full: `${id}_P.png` } },
 } } });
-export const NAUTILUS = champ("Nautilus", "Nautilus", "the Titan of the Depths", ["Dredge Line", "Titan's Wrath", "Riptide", "Depth Charge"], "Staggering Blow");
+// Display name differs from the file id: exercises the name -> id lookup.
+export const VELKOZ = champ("Velkoz", "Vel'Koz", "the Eye of the Void", ["Plasma Fission", "Void Rift", "Tectonic Disruption", "Life Form Disintegration Ray"], "Organic Deconstruction");
 export const SHYVANA = champ("Shyvana", "Shyvana", "the Half-Dragon", ["Emberstrike", "Inferno Aegis", "Molten Burst", "Dragon's Descent"], "Scalemail");
 export const SYLAS = champ("Sylas", "Sylas", "the Unshackled", ["Chain Lash", "Kingslayer", "Abscond / Abduct", "Hijack"], "Petricite Burst");
 
@@ -78,13 +79,13 @@ export function ddJsonFor(path) {
     [`${base}summoner.json`]: SUMMONERS,
     [`${base}champion/Gwen.json`]: GWEN,
     [`${base}champion/Kaisa.json`]: KAISA,
-    [`${base}champion/Nautilus.json`]: NAUTILUS,
+    [`${base}champion/Velkoz.json`]: VELKOZ,
     [`${base}champion/Shyvana.json`]: SHYVANA,
     [`${base}champion/Sylas.json`]: SYLAS,
     [`${base}champion.json`]: { data: {
       Gwen: { id: "Gwen", name: "Gwen", image: { full: "Gwen.png" } },
       Kaisa: { id: "Kaisa", name: "Kai'Sa", image: { full: "Kaisa.png" } },
-      Nautilus: { id: "Nautilus", name: "Nautilus", image: { full: "Nautilus.png" } },
+      Velkoz: { id: "Velkoz", name: "Vel'Koz", image: { full: "Velkoz.png" } },
       Shyvana: { id: "Shyvana", name: "Shyvana", image: { full: "Shyvana.png" } },
       Sylas: { id: "Sylas", name: "Sylas", image: { full: "Sylas.png" } },
       // Listed, but its detail file is missing: exercises the "can't load" state.

@@ -105,6 +105,13 @@ async function loadDataDragon(champions, onChange) {
     return;
   }
   const v = DD.version, base = `cdn/${v}/data/en_US/`;
+  const list = ddJson(base + "champion.json").then((j) => {
+    for (const c of Object.values(j.data || {})) {
+      const p = { id: c.id, name: c.name, img: `${DD_BASE}cdn/${v}/img/champion/${c.image.full}` };
+      DD.portraits.set(c.name, p);
+      DD.portraits.set(c.id, p);
+    }
+  });
   const jobs = [
     ddJson(base + "item.json").then((j) => { DD.items = indexItems(j, v); }),
     ddJson(base + "runesReforged.json").then(indexRunes),
@@ -113,14 +120,12 @@ async function loadDataDragon(champions, onChange) {
         DD.summoners.set(s.name, { img: `${DD_BASE}cdn/${v}/img/spell/${s.image.full}`, desc: ddText(s.description) });
       }
     }),
-    ddJson(base + "champion.json").then((j) => {
-      for (const c of Object.values(j.data || {})) {
-        const p = { id: c.id, name: c.name, img: `${DD_BASE}cdn/${v}/img/champion/${c.image.full}` };
-        DD.portraits.set(c.name, p);
-        DD.portraits.set(c.id, p);
-      }
-    }),
-    ...champions.map((c) => ddJson(`${base}champion/${c}.json`).then((j) => indexChampion(j, v))),
+    list,
+    // Guides are keyed by display name ("Vel'Koz"), detail files by id ("Velkoz"), so
+    // each detail file waits for the champion list to map one to the other.
+    ...champions.map((c) => list.catch(() => null)
+      .then(() => ddJson(`${base}champion/${(DD.portraits.get(c) || { id: c }).id}.json`))
+      .then((j) => indexChampion(j, v))),
   ];
   const results = await Promise.allSettled(jobs);
   DD.status = results.some((r) => r.status === "fulfilled") ? "ready" : "offline";

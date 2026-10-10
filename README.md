@@ -1,7 +1,7 @@
 # LoL Overlay
 
 A very light (Tauri) in-game overlay for League of Legends, aimed at new players.
-It ships hand-written guides for **Gwen, Nautilus, Shyvana and Sylas** (overview, abilities, builds, runes, combos, matchups and a quick reference). Every other champion gets an automatic guide built from Riot's Data Dragon (real abilities, plus a generic rune/item/spell template for their class and a skill order picked from cooldowns). Those are starting points, not meta builds. Add an entry to `src/data/guides.js` to write a full one.
+It ships hand-written guides for **Gwen, Vel'Koz, Shyvana and Sylas** (overview, abilities, builds, runes, combos, matchups and a quick reference). Every other champion gets an automatic guide built from Riot's Data Dragon (real abilities, plus a generic rune/item/spell template for their class and a skill order picked from cooldowns). Those are starting points, not meta builds. Add an entry to `src/data/guides.js` to write a full one.
 
 ## Using it
 - Run League in **Borderless** (recommended) or **Windowed** mode. See [Display modes](#display-modes).
